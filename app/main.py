@@ -15,6 +15,7 @@ from app.harvest import (
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
+    standard_instruks,
 )
 from app.llm import foreslå_kilder
 from app.models import Arrangement, EkskludertSignatur, Kilde, KildeForslag
@@ -254,59 +255,82 @@ def _lagre_arrangement(
     return True
 
 
+def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
+    arrangementer = session.exec(
+        select(Arrangement).order_by(Arrangement.dato, Arrangement.klokkeslett)
+    ).all()
+    forste_dag, siste_dag = beregn_periode()
+    return {
+        "request": request,
+        "arrangementer": arrangementer,
+        "forste_dag": forste_dag,
+        "siste_dag": siste_dag,
+        "standard_instruks_verdi": standard_instruks(forste_dag, siste_dag),
+        "feilmelding": feilmelding,
+    }
+
+
 @app.get("/innhosting")
 def innhosting_side(
     request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
-    arrangementer = session.exec(
-        select(Arrangement).order_by(Arrangement.dato, Arrangement.klokkeslett)
-    ).all()
-    forste_dag, siste_dag = beregn_periode()
     return templates.TemplateResponse(
-        "innhosting.html",
-        {
-            "request": request,
-            "arrangementer": arrangementer,
-            "forste_dag": forste_dag,
-            "siste_dag": siste_dag,
-        },
+        "innhosting.html", _innhosting_kontekst(request, session)
     )
 
 
 @app.post("/innhosting/kjor")
 def kjor_innhosting(
+    request: Request,
+    instruks: str = Form(...),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
     forste_dag, siste_dag = beregn_periode()
 
-    for gammelt in session.exec(select(Arrangement)).all():
-        session.delete(gammelt)
-    session.commit()
-
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
+
     aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
 
-    sett_ider: set[str] = set()
-
+    feil_kilder = []
     for kilde in aktive_kilder:
         try:
-            rå = hent_fra_kilde(kilde, forste_dag, siste_dag)
-        except Exception:
+            rå = hent_fra_kilde(kilde, forste_dag, siste_dag, instruks=instruks)
+        except Exception as e:
             rå = []
+            feil_kilder.append(f"{kilde.navn} ({e})")
         antall = sum(1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte))
         kilde.automatisk_prioritet = float(antall)
         session.add(kilde)
 
+    session.commit()
+
+    if feil_kilder:
+        feilmelding = "Disse kildene feilet under innhøsting: " + "; ".join(feil_kilder)
+        return templates.TemplateResponse(
+            "innhosting.html", _innhosting_kontekst(request, session, feilmelding)
+        )
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/tom")
+def tom_utkast(
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    for a in session.exec(select(Arrangement)).all():
+        session.delete(a)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
 @app.post("/innhosting/last-opp")
 async def last_opp_fil(
+    request: Request,
     fil: UploadFile = File(...),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
@@ -314,12 +338,29 @@ async def last_opp_fil(
     forste_dag, siste_dag = beregn_periode()
     innhold = await fil.read()
 
-    if fil.content_type == "application/pdf":
-        rå = hent_fra_pdf(innhold, forste_dag, siste_dag)
-    elif fil.content_type in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
-        rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag)
-    else:
-        rå = []
+    STOTTEDE_BILDETYPER = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    try:
+        if fil.content_type == "application/pdf":
+            rå = hent_fra_pdf(innhold, forste_dag, siste_dag)
+        elif fil.content_type in STOTTEDE_BILDETYPER:
+            rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag)
+        else:
+            return templates.TemplateResponse(
+                "innhosting.html",
+                _innhosting_kontekst(
+                    request,
+                    session,
+                    f"Filtypen '{fil.content_type}' støttes ikke. Bruk JPEG, PNG, WEBP, "
+                    "GIF eller PDF.",
+                ),
+            )
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request, session, f"Kunne ikke tolke filen '{fil.filename}': {e}"
+            ),
+        )
 
     sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}

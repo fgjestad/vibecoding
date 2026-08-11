@@ -15,11 +15,28 @@
     <h1>Innhøsting og kuratering</h1>
     <p class="undertittel">
       Periode: {{ forste_dag.strftime("%d.%m.%Y") }} – {{ siste_dag.strftime("%d.%m.%Y") }}.
-      "Kjør innhøsting" henter fra alle aktive kilder og erstatter dagens utkast.
+      "Kjør innhøsting" henter fra alle aktive kilder og legger nye funn til i utkastet
+      under (ingenting du allerede har i lista forsvinner).
     </p>
 
-    <form method="post" action="/innhosting/kjor" id="kjor-skjema">
-      <button type="submit" class="primær" id="kjor-knapp">Kjør innhøsting</button>
+    {% if feilmelding %}
+      <div class="kort" style="border-color: var(--danger); background: #fbeeec;">
+        <strong style="color: var(--danger);">Noe gikk galt:</strong>
+        <p style="margin: 0.3rem 0 0;">{{ feilmelding }}</p>
+      </div>
+    {% endif %}
+
+    <form class="skjema-kort" method="post" action="/innhosting/kjor" id="kjor-skjema">
+      <label>Instruks til Claude (redigerbar — forhåndsutfylt med standarden)
+        <textarea
+          name="instruks"
+          rows="14"
+          style="width: 100%; font-family: monospace; font-size: 0.85rem; margin-top: 0.3rem;"
+        >{{ standard_instruks_verdi }}</textarea>
+      </label>
+      <button type="submit" class="primær" id="kjor-knapp" style="margin-top: 0.75rem;">
+        Kjør innhøsting
+      </button>
     </form>
     <script>
       document.getElementById("kjor-skjema").addEventListener("submit", function () {
@@ -56,7 +73,18 @@
       });
     </script>
 
-    <h2>Utkast ({{ arrangementer|length }})</h2>
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+      <h2>Utkast ({{ arrangementer|length }})</h2>
+      {% if arrangementer %}
+        <form
+          method="post"
+          action="/innhosting/tom"
+          onsubmit="return confirm('Tømme hele utkastet? Dette kan ikke angres.');"
+        >
+          <button type="submit" class="faresone">Tøm utkastet</button>
+        </form>
+      {% endif %}
+    </div>
     {% if not arrangementer %}
       <p class="tom">Ingen arrangementer ennå. Trykk "Kjør innhøsting" over, eller last opp en fil.</p>
     {% else %}

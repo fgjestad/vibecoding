@@ -65,10 +65,13 @@ def _parse_json_liste(tekst: str) -> list[dict]:
     return [e for e in data if isinstance(e, dict) and e.get("tittel") and e.get("dato")]
 
 
-def _felles_instruks(forste_dag: date, siste_dag: date) -> str:
-    return f"""
-Perioden vi er interessert i: {forste_dag.isoformat()} til {siste_dag.isoformat()} (begge \
-datoer inkludert).
+def standard_instruks(forste_dag: date, siste_dag: date) -> str:
+    """Standard-instruksen som sendes til Claude for å hente ut arrangementer.
+
+    Vises redigerbar i UI (jobb 2) slik at brukeren kan finpusse den før en kjøring.
+    """
+    return f"""Perioden vi er interessert i: {forste_dag.isoformat()} til {siste_dag.isoformat()} \
+(begge datoer inkludert).
 
 For hvert arrangement i denne perioden, hent ut:
 - "tittel": kort tittel på arrangementet
@@ -83,19 +86,24 @@ For hvert arrangement i denne perioden, hent ut:
 Ikke ta med arrangementer som tydelig skjer utenfor Nes kommune, eller utenfor perioden over.
 
 Svar til slutt KUN med et gyldig JSON-array, ingen tekst før eller etter. Hvis du ikke finner \
-noen relevante arrangementer, svar med et tomt array: []
-"""
+noen relevante arrangementer, svar med et tomt array: []"""
 
 
-def hent_fra_kilde(kilde: Kilde, forste_dag: date, siste_dag: date) -> list[dict]:
+def hent_fra_kilde(
+    kilde: Kilde,
+    forste_dag: date,
+    siste_dag: date,
+    instruks: str | None = None,
+) -> list[dict]:
     """Henter arrangementer fra én kilde-URL ved hjelp av Claude med web_fetch."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return []
 
+    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
     prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde.url}
 
-{_felles_instruks(forste_dag, siste_dag)}
+{instruks}
 """
     response = client.messages.create(
         model=MODEL,
@@ -114,18 +122,23 @@ def hent_fra_kilde(kilde: Kilde, forste_dag: date, siste_dag: date) -> list[dict
 
 
 def hent_fra_bilde(
-    data: bytes, media_type: str, forste_dag: date, siste_dag: date
+    data: bytes,
+    media_type: str,
+    forste_dag: date,
+    siste_dag: date,
+    instruks: str | None = None,
 ) -> list[dict]:
     """Tolker en skjermdump (bilde) og henter ut arrangementer."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return []
 
+    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
     b64 = base64.standard_b64encode(data).decode("utf-8")
     prompt = f"""Dette er en skjermdump av et innlegg/en side om ett eller flere arrangementer \
 (f.eks. fra Facebook). Se på bildet og hent ut arrangementene som er omtalt.
 
-{_felles_instruks(forste_dag, siste_dag)}
+{instruks}
 """
     response = client.messages.create(
         model=MODEL,
@@ -153,17 +166,23 @@ def hent_fra_bilde(
     return arrangementer
 
 
-def hent_fra_pdf(data: bytes, forste_dag: date, siste_dag: date) -> list[dict]:
+def hent_fra_pdf(
+    data: bytes,
+    forste_dag: date,
+    siste_dag: date,
+    instruks: str | None = None,
+) -> list[dict]:
     """Tolker en PDF (f.eks. papiravis-annonse) og henter ut arrangementer."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return []
 
+    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
     b64 = base64.standard_b64encode(data).decode("utf-8")
     prompt = f"""Dette er en PDF med én eller flere arrangementsannonser (f.eks. fra \
 papiravisen). Se gjennom dokumentet og hent ut arrangementene som er omtalt.
 
-{_felles_instruks(forste_dag, siste_dag)}
+{instruks}
 """
     response = client.messages.create(
         model=MODEL,
