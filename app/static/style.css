@@ -157,6 +157,30 @@ form.inline {
   font-style: italic;
 }
 
+.meny {
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.meny a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.meny a.aktiv-lenke {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kort.utelatt {
+  opacity: 0.55;
+}
+
+.tag-advarsel {
+  background: #f0d9d9;
+  color: var(--danger);
+}
+
 details summary {
   cursor: pointer;
   color: var(--accent);

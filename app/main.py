@@ -1,4 +1,6 @@
-from fastapi import Depends, FastAPI, Form, Request
+from datetime import date, datetime
+
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -6,8 +8,16 @@ from sqlmodel import Session, select
 
 from app.auth import sjekk_passord
 from app.db import get_session, init_db
+from app.harvest import (
+    beregn_arrangement_id,
+    beregn_periode,
+    beregn_signatur,
+    hent_fra_bilde,
+    hent_fra_kilde,
+    hent_fra_pdf,
+)
 from app.llm import foreslå_kilder
-from app.models import Kilde, KildeForslag
+from app.models import Arrangement, EkskludertSignatur, Kilde, KildeForslag
 
 app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -197,3 +207,149 @@ def avvis_forslag(
         session.add(forslag)
         session.commit()
     return _forslagliste_respons(request, session)
+
+
+def _lagre_arrangement(
+    session: Session,
+    data: dict,
+    sett_ider: set[str],
+    ekskluderte_signaturer: set[str],
+) -> bool:
+    """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret."""
+    tittel = str(data.get("tittel") or "").strip()
+    dato_str = str(data.get("dato") or "").strip()
+    sted = str(data.get("sted") or "").strip()
+    if not tittel or not dato_str:
+        return False
+    try:
+        date.fromisoformat(dato_str)
+    except ValueError:
+        return False
+
+    arrangement_id = beregn_arrangement_id(tittel, dato_str, sted)
+    if arrangement_id in sett_ider:
+        return False
+    sett_ider.add(arrangement_id)
+
+    signatur = beregn_signatur(tittel, data.get("arrangor"), dato_str)
+    forhandsvalgt_bort = signatur in ekskluderte_signaturer
+
+    session.add(
+        Arrangement(
+            arrangement_id=arrangement_id,
+            tittel=tittel,
+            dato=dato_str,
+            klokkeslett=data.get("klokkeslett"),
+            sted=sted,
+            arrangor=data.get("arrangor"),
+            beskrivelse=str(data.get("beskrivelse") or "").strip(),
+            kilde_type=data.get("kilde_type", "nettsok"),
+            kilde_url=data.get("kilde_url"),
+            geografisk_relevans=data.get("geografisk_relevans", "usikker"),
+            signatur=signatur,
+            valgt=not forhandsvalgt_bort,
+            forhandsvalgt_bort=forhandsvalgt_bort,
+        )
+    )
+    return True
+
+
+@app.get("/innhosting")
+def innhosting_side(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    arrangementer = session.exec(
+        select(Arrangement).order_by(Arrangement.dato, Arrangement.klokkeslett)
+    ).all()
+    forste_dag, siste_dag = beregn_periode()
+    return templates.TemplateResponse(
+        "innhosting.html",
+        {
+            "request": request,
+            "arrangementer": arrangementer,
+            "forste_dag": forste_dag,
+            "siste_dag": siste_dag,
+        },
+    )
+
+
+@app.post("/innhosting/kjor")
+def kjor_innhosting(
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    forste_dag, siste_dag = beregn_periode()
+
+    for gammelt in session.exec(select(Arrangement)).all():
+        session.delete(gammelt)
+    session.commit()
+
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
+    aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
+
+    sett_ider: set[str] = set()
+
+    for kilde in aktive_kilder:
+        try:
+            rå = hent_fra_kilde(kilde, forste_dag, siste_dag)
+        except Exception:
+            rå = []
+        antall = sum(1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte))
+        kilde.automatisk_prioritet = float(antall)
+        session.add(kilde)
+
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/last-opp")
+async def last_opp_fil(
+    fil: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    forste_dag, siste_dag = beregn_periode()
+    innhold = await fil.read()
+
+    if fil.content_type == "application/pdf":
+        rå = hent_fra_pdf(innhold, forste_dag, siste_dag)
+    elif fil.content_type in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+        rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag)
+    else:
+        rå = []
+
+    sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    for a in rå:
+        _lagre_arrangement(session, a, sett_ider, ekskluderte)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/lagre-utvalg")
+def lagre_utvalg(
+    valgt_ider: list[int] = Form(default=[]),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    valgt_sett = set(valgt_ider)
+    for a in session.exec(select(Arrangement)).all():
+        var_valgt_for = a.valgt
+        a.valgt = a.id in valgt_sett
+        if var_valgt_for and not a.valgt:
+            eksisterende = session.exec(
+                select(EkskludertSignatur).where(EkskludertSignatur.signatur == a.signatur)
+            ).first()
+            if eksisterende:
+                eksisterende.sist_fjernet_at = datetime.utcnow()
+                session.add(eksisterende)
+            else:
+                session.add(
+                    EkskludertSignatur(signatur=a.signatur, tittel_eksempel=a.tittel)
+                )
+        session.add(a)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)

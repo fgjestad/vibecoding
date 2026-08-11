@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Innhøsting — Raumnes arrangementer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <nav class="meny">
+      <a href="/">Kildeliste</a> · <a href="/innhosting" class="aktiv-lenke">Innhøsting</a>
+    </nav>
+
+    <h1>Innhøsting og kuratering</h1>
+    <p class="undertittel">
+      Periode: {{ forste_dag.strftime("%d.%m.%Y") }} – {{ siste_dag.strftime("%d.%m.%Y") }}.
+      "Kjør innhøsting" henter fra alle aktive kilder og erstatter dagens utkast.
+    </p>
+
+    <form method="post" action="/innhosting/kjor" id="kjor-skjema">
+      <button type="submit" class="primær" id="kjor-knapp">Kjør innhøsting</button>
+    </form>
+    <script>
+      document.getElementById("kjor-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("kjor-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Henter arrangementer … (kan ta noen minutter)';
+      });
+    </script>
+
+    <h2>Last opp skjermdump eller PDF</h2>
+    <p class="undertittel">
+      For arrangementer som kun finnes på Facebook (last opp skjermdump) eller i papiravisen
+      (last opp PDF). Legges til i utkastet under, i tillegg til det som hentes automatisk.
+    </p>
+    <form
+      class="skjema-kort"
+      method="post"
+      action="/innhosting/last-opp"
+      enctype="multipart/form-data"
+      id="last-opp-skjema"
+    >
+      <label>Fil (bilde av innlegg, eller PDF)
+        <input type="file" name="fil" accept="image/*,application/pdf" required />
+      </label>
+      <button type="submit" class="primær" id="last-opp-knapp" style="margin-top:0.75rem;">
+        Last opp og tolk
+      </button>
+    </form>
+    <script>
+      document.getElementById("last-opp-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("last-opp-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Tolker fil …';
+      });
+    </script>
+
+    <h2>Utkast ({{ arrangementer|length }})</h2>
+    {% if not arrangementer %}
+      <p class="tom">Ingen arrangementer ennå. Trykk "Kjør innhøsting" over, eller last opp en fil.</p>
+    {% else %}
+      <form method="post" action="/innhosting/lagre-utvalg">
+        {% for a in arrangementer %}
+          <div class="kort {{ 'utelatt' if not a.valgt else '' }}">
+            <label style="display: flex; gap: 0.75rem; align-items: flex-start; cursor: pointer;">
+              <input
+                type="checkbox"
+                name="valgt_ider"
+                value="{{ a.id }}"
+                {% if a.valgt %}checked{% endif %}
+                style="margin-top: 0.3rem;"
+              />
+              <div style="flex: 1;">
+                <strong>{{ a.tittel }}</strong>
+                <span class="tag">{{ a.geografisk_relevans }}</span>
+                {% if a.forhandsvalgt_bort %}
+                  <span class="tag tag-advarsel">fjernet forrige uke</span>
+                {% endif %}
+                <div class="meta">
+                  {{ a.dato }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
+                  {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
+                </div>
+                <p style="margin: 0.3rem 0;">{{ a.beskrivelse }}</p>
+                <div class="meta">
+                  Kilde: {{ a.kilde_type }}
+                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+                </div>
+              </div>
+            </label>
+          </div>
+        {% endfor %}
+        <button type="submit" class="primær" style="margin-top: 1rem;">Lagre utvalg</button>
+      </form>
+    {% endif %}
+  </main>
+</body>
+</html>
