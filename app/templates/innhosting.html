@@ -9,7 +9,8 @@
 <body>
   <main>
     <nav class="meny">
-      <a href="/">Kildeliste</a> · <a href="/innhosting" class="aktiv-lenke">Innhøsting</a>
+      <a href="/">Kildeliste</a> · <a href="/innhosting" class="aktiv-lenke">Innhøsting</a> ·
+      <a href="/artikler">Artikler</a>
     </nav>
 
     <h1>Innhøsting og kuratering</h1>
@@ -18,6 +19,13 @@
       "Kjør innhøsting" henter fra alle aktive kilder og legger nye funn til i utkastet
       under (ingenting du allerede har i lista forsvinner).
     </p>
+
+    <form method="post" action="/innstillinger" style="margin-bottom: 1.5rem; display: flex; align-items: flex-end; gap: 0.75rem;">
+      <label style="margin: 0;">Antall dager fram i tid (fra i morgen)
+        <input type="number" name="antall_dager" value="{{ antall_dager }}" min="1" max="90" style="width: 6rem;" />
+      </label>
+      <button type="submit">Lagre periode</button>
+    </form>
 
     {% if feilmelding %}
       <div class="kort" style="border-color: var(--danger); background: #fbeeec;">

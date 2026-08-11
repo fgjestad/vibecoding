@@ -67,3 +67,36 @@ class EkskludertSignatur(SQLModel, table=True):
     signatur: str = Field(index=True)
     tittel_eksempel: str
     sist_fjernet_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Artikkel(SQLModel, table=True):
+    """Generert artikkelutkast for hele perioden (jobb 3). Erstattes helt ved hver nye kjøring."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tittel: str
+    ingress: str
+    opprettet_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ArtikkelAvsnitt(SQLModel, table=True):
+    """Ett avsnitt i artikkelen — tilsvarer ett arrangement. Redigerbart og kan flyttes."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    artikkel_id: int = Field(foreign_key="artikkel.id", index=True)
+    arrangement_id: int = Field(foreign_key="arrangement.id")
+    tekst: str = Field(description="Omskrevet avsnittstekst. **dobbel stjerne** markerer fet skrift")
+    rekkefolge: int = Field(default=0, index=True)
+    mulig_kopiert: bool = Field(
+        default=False,
+        description="True hvis en enkel etterkontroll fant lange ordrette utdrag fra "
+        "kildeteksten igjen i avsnittet — bør sjekkes manuelt før publisering",
+    )
+
+
+class Innstilling(SQLModel, table=True):
+    """Enkelt nøkkel-verdi-lager for globale innstillinger. Kun én rad (id=1) brukes."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    antall_dager: int = Field(
+        default=14, description="Hvor mange dager fram i tid (fra i morgen) perioden dekker"
+    )

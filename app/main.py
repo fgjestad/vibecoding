@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
+from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt
 from app.auth import sjekk_passord
 from app.db import get_session, init_db
 from app.harvest import (
@@ -22,7 +23,15 @@ from app.harvest import (
     standard_instruks,
 )
 from app.llm import foreslå_kilder
-from app.models import Arrangement, EkskludertSignatur, Kilde, KildeForslag
+from app.models import (
+    Arrangement,
+    Artikkel,
+    ArtikkelAvsnitt,
+    EkskludertSignatur,
+    Innstilling,
+    Kilde,
+    KildeForslag,
+)
 
 app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -34,6 +43,29 @@ MAKS_SAMTIDIGE_KILDER = 5
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+
+
+def _hent_innstilling(session: Session) -> Innstilling:
+    innstilling = session.get(Innstilling, 1)
+    if not innstilling:
+        innstilling = Innstilling(id=1)
+        session.add(innstilling)
+        session.commit()
+        session.refresh(innstilling)
+    return innstilling
+
+
+@app.post("/innstillinger")
+def oppdater_innstillinger(
+    antall_dager: int = Form(...),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    innstilling.antall_dager = max(1, min(antall_dager, 90))
+    session.add(innstilling)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
 
 
 def _kildeliste_respons(request: Request, session: Session, melding: str | None = None):
@@ -301,14 +333,16 @@ def _sorteringsnokkel(a: Arrangement) -> tuple:
 
 
 def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
+    innstilling = _hent_innstilling(session)
     arrangementer = session.exec(select(Arrangement)).all()
     arrangementer = sorted(arrangementer, key=_sorteringsnokkel)
-    forste_dag, siste_dag = beregn_periode()
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return {
         "request": request,
         "arrangementer": arrangementer,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
+        "antall_dager": innstilling.antall_dager,
         "standard_instruks_verdi": standard_instruks(forste_dag, siste_dag),
         "feilmelding": feilmelding,
     }
@@ -332,7 +366,8 @@ def kjor_innhosting(
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
-    forste_dag, siste_dag = beregn_periode()
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
@@ -436,7 +471,8 @@ async def last_opp_fil(
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
-    forste_dag, siste_dag = beregn_periode()
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     innhold = await fil.read()
 
     STOTTEDE_BILDETYPER = {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -495,3 +531,252 @@ def lagre_utvalg(
         session.add(a)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
+
+
+def _artikler_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    artikkel = session.exec(select(Artikkel)).first()
+    avsnitt_liste = []
+    if artikkel:
+        rader = session.exec(
+            select(ArtikkelAvsnitt)
+            .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
+            .order_by(ArtikkelAvsnitt.rekkefolge)
+        ).all()
+        arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
+        for rad in rader:
+            kilde = arrangement_oppslag.get(rad.arrangement_id)
+            avsnitt_liste.append(
+                {
+                    "id": rad.id,
+                    "tekst": rad.tekst,
+                    "mulig_kopiert": rad.mulig_kopiert,
+                    "kilde_url": kilde.kilde_url if kilde else None,
+                    "kilde_tittel": kilde.tittel if kilde else "",
+                }
+            )
+
+    return {
+        "request": request,
+        "artikkel": artikkel,
+        "avsnitt": avsnitt_liste,
+        "forste_dag": forste_dag,
+        "siste_dag": siste_dag,
+        "feilmelding": feilmelding,
+    }
+
+
+@app.get("/artikler")
+def artikler_side(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session))
+
+
+@app.post("/artikler/generer")
+def generer_artikkel_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+    valgte = session.exec(
+        select(Arrangement).where(
+            Arrangement.valgt == True,  # noqa: E712
+            Arrangement.dato >= forste_dag.isoformat(),
+            Arrangement.dato <= siste_dag.isoformat(),
+        )
+    ).all()
+
+    if not valgte:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(
+                request,
+                session,
+                "Ingen valgte arrangementer i utkastet for gjeldende periode. Gå til "
+                "Innhøsting og velg noen først.",
+            ),
+        )
+
+    try:
+        resultat = generer_hel_artikkel(valgte)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(request, session, f"Kunne ikke generere artikkelen: {e}"),
+        )
+
+    if not resultat:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(request, session, "Fikk ikke generert noen artikkel. Prøv igjen."),
+        )
+
+    for gammel_avsnitt in session.exec(select(ArtikkelAvsnitt)).all():
+        session.delete(gammel_avsnitt)
+    for gammel_artikkel in session.exec(select(Artikkel)).all():
+        session.delete(gammel_artikkel)
+    session.commit()
+
+    ny_artikkel = Artikkel(tittel=resultat["tittel"], ingress=resultat["ingress"])
+    session.add(ny_artikkel)
+    session.commit()
+    session.refresh(ny_artikkel)
+
+    for rekkefolge, avsnitt in enumerate(resultat["avsnitt"]):
+        session.add(
+            ArtikkelAvsnitt(
+                artikkel_id=ny_artikkel.id,
+                arrangement_id=avsnitt["arrangement_id"],
+                tekst=avsnitt["tekst"],
+                rekkefolge=rekkefolge,
+                mulig_kopiert=avsnitt["mulig_kopiert"],
+            )
+        )
+    session.commit()
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
+@app.post("/artikler/lagre")
+async def lagre_artikkel(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    skjema = await request.form()
+    artikkel = session.exec(select(Artikkel)).first()
+    if not artikkel:
+        return RedirectResponse(url="/artikler", status_code=303)
+
+    tittel = str(skjema.get("tittel") or "").strip()
+    ingress = str(skjema.get("ingress") or "").strip()
+    if tittel:
+        artikkel.tittel = tittel
+    if ingress:
+        artikkel.ingress = ingress
+    session.add(artikkel)
+
+    for rad in session.exec(
+        select(ArtikkelAvsnitt).where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
+    ).all():
+        ny_tekst = skjema.get(f"avsnitt_{rad.id}")
+        if ny_tekst is not None:
+            rad.tekst = str(ny_tekst).strip()
+            session.add(rad)
+    session.commit()
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
+def _flytt_avsnitt(session: Session, avsnitt_id: int, retning: int) -> None:
+    """retning: -1 for å flytte opp, +1 for å flytte ned."""
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if not rad:
+        return
+    naboer = session.exec(
+        select(ArtikkelAvsnitt)
+        .where(ArtikkelAvsnitt.artikkel_id == rad.artikkel_id)
+        .order_by(ArtikkelAvsnitt.rekkefolge)
+    ).all()
+    indeks = next((i for i, n in enumerate(naboer) if n.id == rad.id), None)
+    if indeks is None:
+        return
+    bytte_indeks = indeks + retning
+    if not (0 <= bytte_indeks < len(naboer)):
+        return
+    nabo = naboer[bytte_indeks]
+    rad.rekkefolge, nabo.rekkefolge = nabo.rekkefolge, rad.rekkefolge
+    session.add(rad)
+    session.add(nabo)
+    session.commit()
+
+
+@app.post("/artikler/avsnitt/{avsnitt_id}/opp")
+def flytt_avsnitt_opp(
+    avsnitt_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    _flytt_avsnitt(session, avsnitt_id, -1)
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
+@app.post("/artikler/avsnitt/{avsnitt_id}/ned")
+def flytt_avsnitt_ned(
+    avsnitt_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    _flytt_avsnitt(session, avsnitt_id, 1)
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
+@app.post("/artikler/avsnitt/{avsnitt_id}/hent-mer")
+def hent_mer_for_avsnitt(
+    avsnitt_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if not rad:
+        return RedirectResponse(url="/artikler", status_code=303)
+    arrangement = session.get(Arrangement, rad.arrangement_id)
+    if not arrangement:
+        return RedirectResponse(url="/artikler", status_code=303)
+
+    try:
+        ny_tekst, bekreftet, ny_url = hent_mer_info(
+            arrangement.kilde_url,
+            arrangement.tittel,
+            arrangement.dato,
+            arrangement.klokkeslett,
+            arrangement.sted,
+        )
+    except Exception as e:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(
+                request, session, f"Kunne ikke hente mer info for «{arrangement.tittel}»: {e}"
+            ),
+        )
+
+    if not ny_tekst:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(
+                request,
+                session,
+                f"Fant ikke mer informasjon om «{arrangement.tittel}» enn det som allerede "
+                "er hentet.",
+            ),
+        )
+
+    arrangement.original_tekst = ny_tekst
+    arrangement.tekst_bekreftet = bekreftet
+    if ny_url:
+        arrangement.kilde_url = ny_url
+    session.add(arrangement)
+    session.commit()
+
+    try:
+        omskrevet = skriv_om_ett_avsnitt(arrangement)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(
+                request, session, f"Hentet mer info, men klarte ikke omskrive avsnittet: {e}"
+            ),
+        )
+
+    if omskrevet:
+        rad.tekst, rad.mulig_kopiert = omskrevet
+        session.add(rad)
+        session.commit()
+
+    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session))

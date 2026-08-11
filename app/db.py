@@ -28,8 +28,24 @@ def _migrer_arrangement_tabell() -> None:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN tekst_bekreftet BOOLEAN NOT NULL DEFAULT 0"))
 
 
+def _migrer_artikkel_tabell() -> None:
+    """'artikkel' er kun avledet, disponibel data (regenereres alltid fra bunnen av jobb 3-
+    knappen), så ved skjemaendringer dropper vi den trygt fremfor å migrere kolonne for
+    kolonne — det finnes ingen brukerdata her å ta vare på."""
+    inspector = inspect(engine)
+    if "artikkel" not in inspector.get_table_names():
+        return
+
+    kolonner = {kol["name"] for kol in inspector.get_columns("artikkel")}
+    if "tittel" not in kolonner or "ingress" not in kolonner:
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS artikkelavsnitt"))
+            conn.execute(text("DROP TABLE artikkel"))
+
+
 def init_db() -> None:
     _migrer_arrangement_tabell()
+    _migrer_artikkel_tabell()
     SQLModel.metadata.create_all(engine)
 
 

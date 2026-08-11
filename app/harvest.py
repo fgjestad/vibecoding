@@ -23,12 +23,11 @@ STED_BESKRIVELSE = (
 )
 
 
-def beregn_periode(i_dag: date | None = None) -> tuple[date, date]:
-    """Returnerer (forste_dag, siste_dag): fra førstkommende fredag og 14 dager frem."""
+def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[date, date]:
+    """Returnerer (forste_dag, siste_dag): fra i morgen og "antall_dager" dager frem."""
     i_dag = i_dag or date.today()
-    dager_til_fredag = (4 - i_dag.weekday()) % 7
-    forste_dag = i_dag + timedelta(days=dager_til_fredag)
-    siste_dag = forste_dag + timedelta(days=13)
+    forste_dag = i_dag + timedelta(days=1)
+    siste_dag = forste_dag + timedelta(days=max(antall_dager, 1) - 1)
     return forste_dag, siste_dag
 
 

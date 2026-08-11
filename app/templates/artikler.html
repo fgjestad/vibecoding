@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Artikkel — Raumnes arrangementer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <nav class="meny">
+      <a href="/">Kildeliste</a> · <a href="/innhosting">Innhøsting</a> ·
+      <a href="/artikler" class="aktiv-lenke">Artikler</a>
+    </nav>
+
+    <h1>Artikkelgenerering</h1>
+    <p class="undertittel">
+      Skriver én samlet artikkel for perioden {{ forste_dag.strftime("%d.%m.%Y") }} –
+      {{ siste_dag.strftime("%d.%m.%Y") }} (lengden på perioden endres på Innhøsting-siden),
+      basert på arrangementene du har valgt der. Teksten er omskrevet av Claude med egne ord —
+      aldri kopiert direkte fra kildene. Ingenting publiseres automatisk.
+    </p>
+
+    {% if feilmelding %}
+      <div class="kort" style="border-color: var(--danger); background: #fbeeec;">
+        <strong style="color: var(--danger);">Noe gikk galt:</strong>
+        <p style="margin: 0.3rem 0 0;">{{ feilmelding }}</p>
+      </div>
+    {% endif %}
+
+    <form method="post" action="/artikler/generer" id="generer-skjema" class="skjema-kort">
+      <button type="submit" class="primær" id="generer-knapp">Generer artikkel</button>
+      <p class="meta" style="margin: 0.5rem 0 0;">
+        Erstatter en eventuell tidligere generert artikkel med en ny, basert på gjeldende utvalg.
+      </p>
+    </form>
+    <script>
+      document.getElementById("generer-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("generer-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Skriver artikkel … (kan ta ett minutt)';
+      });
+    </script>
+
+    {% if not artikkel %}
+      <p class="tom" style="margin-top: 2rem;">Ingen artikkel generert ennå.</p>
+    {% else %}
+      <form method="post" action="/artikler/lagre" id="lagre-skjema" style="margin-top: 2rem;">
+        <div class="kort">
+          <label>Tittel
+            <input
+              type="text"
+              name="tittel"
+              id="artikkel-tittel"
+              value="{{ artikkel.tittel }}"
+              style="width: 100%; font-size: 1.1rem; font-weight: 600;"
+            />
+          </label>
+          <label style="margin-top: 0.75rem;">Ingress
+            <textarea
+              name="ingress"
+              id="artikkel-ingress"
+              rows="3"
+              style="width: 100%; font-family: inherit;"
+            >{{ artikkel.ingress }}</textarea>
+          </label>
+        </div>
+
+        {% for a in avsnitt %}
+          <div class="kort" style="margin-top: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+              <div style="flex: 1;">
+                <textarea
+                  name="avsnitt_{{ a.id }}"
+                  class="avsnitt-tekst"
+                  data-kilde-url="{{ a.kilde_url or '' }}"
+                  rows="4"
+                  style="width: 100%; font-family: inherit;"
+                >{{ a.tekst }}</textarea>
+                {% if a.mulig_kopiert %}
+                  <span class="tag tag-advarsel">
+                    Sjekk denne — mulig ordrett utdrag fra kilde funnet
+                  </span>
+                {% endif %}
+                <div class="meta" style="margin-top: 0.3rem;">
+                  Kilde: {{ a.kilde_tittel }}
+                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/opp" formmethod="post" title="Flytt opp">↑</button>
+                <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/ned" formmethod="post" title="Flytt ned">↓</button>
+                <button
+                  type="submit"
+                  formaction="/artikler/avsnitt/{{ a.id }}/hent-mer"
+                  formmethod="post"
+                  class="hent-mer-knapp"
+                  style="font-size: 0.75rem;"
+                >
+                  Hent mer info
+                </button>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+
+        <button type="submit" class="primær" style="margin-top: 1rem;">Lagre endringer</button>
+      </form>
+      <script>
+        document.getElementById("lagre-skjema").addEventListener("submit", function (event) {
+          var knapp = event.submitter;
+          if (knapp) {
+            knapp.disabled = true;
+            knapp.dataset.opprinneligTekst = knapp.innerHTML;
+            knapp.innerHTML = '<span class="spinner"></span> Jobber …';
+          }
+        });
+      </script>
+
+      <div class="skjema-kort" style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+        <button type="button" id="kopier-ren-knapp" onclick="kopierRentekst()">Kopier ren tekst</button>
+        <button type="button" id="kopier-formatert-knapp" onclick="kopierFormatert()">
+          Kopier med formatering
+        </button>
+      </div>
+
+      <script>
+        function escapeHtml(tekst) {
+          return tekst
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        }
+
+        function markdownTilRentekst(tekst) {
+          return tekst.replace(/\*\*(.+?)\*\*/g, "$1");
+        }
+
+        function markdownTilHtml(tekst, kildeUrl) {
+          var forsteBold = true;
+          return escapeHtml(tekst)
+            .replace(/\*\*(.+?)\*\*/g, function (treff, innhold) {
+              var indre = "<strong>" + innhold + "</strong>";
+              if (forsteBold && kildeUrl) {
+                indre =
+                  '<a href="' +
+                  kildeUrl +
+                  '" target="_blank" rel="noopener"><strong>' +
+                  innhold +
+                  "</strong></a>";
+                forsteBold = false;
+              }
+              return indre;
+            })
+            .replace(/\n/g, "<br>");
+        }
+
+        function samleArtikkel() {
+          var tittel = document.getElementById("artikkel-tittel").value;
+          var ingress = document.getElementById("artikkel-ingress").value;
+          var avsnitt = [];
+          document.querySelectorAll(".avsnitt-tekst").forEach(function (el) {
+            avsnitt.push({ tekst: el.value, kildeUrl: el.dataset.kildeUrl });
+          });
+          return { tittel: tittel, ingress: ingress, avsnitt: avsnitt };
+        }
+
+        function varsleKopiert(id) {
+          var knapp = document.getElementById(id);
+          var opprinnelig = knapp.textContent;
+          knapp.textContent = "Kopiert!";
+          setTimeout(function () {
+            knapp.textContent = opprinnelig;
+          }, 1500);
+        }
+
+        function kopierRentekst() {
+          var data = samleArtikkel();
+          var deler = [data.tittel, "", data.ingress, ""];
+          data.avsnitt.forEach(function (a) {
+            deler.push(markdownTilRentekst(a.tekst));
+            deler.push("");
+          });
+          navigator.clipboard.writeText(deler.join("\n").trim()).then(function () {
+            varsleKopiert("kopier-ren-knapp");
+          });
+        }
+
+        function kopierFormatert() {
+          var data = samleArtikkel();
+          var html =
+            "<h2>" + escapeHtml(data.tittel) + "</h2><p><em>" + escapeHtml(data.ingress) + "</em></p>";
+          data.avsnitt.forEach(function (a) {
+            html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
+          });
+          var plain =
+            data.tittel +
+            "\n\n" +
+            data.ingress +
+            "\n\n" +
+            data.avsnitt.map(function (a) { return markdownTilRentekst(a.tekst); }).join("\n\n");
+
+          var item = new ClipboardItem({
+            "text/plain": new Blob([plain], { type: "text/plain" }),
+            "text/html": new Blob([html], { type: "text/html" }),
+          });
+          navigator.clipboard.write([item]).then(function () {
+            varsleKopiert("kopier-formatert-knapp");
+          });
+        }
+      </script>
+    {% endif %}
+  </main>
+</body>
+</html>
