@@ -109,7 +109,12 @@
                   {{ a.dato }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
                   {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
                 </div>
-                <p style="margin: 0.3rem 0;">{{ a.beskrivelse }}</p>
+                {% if a.tekst_bekreftet %}
+                  <span class="tag" style="background: #dcecdd; color: var(--ok);">bekreftet ordrett</span>
+                {% else %}
+                  <span class="tag tag-advarsel">ikke verifisert ordrett</span>
+                {% endif %}
+                <p style="margin: 0.3rem 0; white-space: pre-line;">{{ a.original_tekst }}</p>
                 <div class="meta">
                   Kilde: {{ a.kilde_type }}
                   {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
