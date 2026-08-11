@@ -41,7 +41,11 @@ class Arrangement(SQLModel, table=True):
     klokkeslett: Optional[str] = None
     sted: str
     arrangor: Optional[str] = None
-    beskrivelse: str
+    original_tekst: str = Field(description="Ordrett tekst hentet fra kilden, uredigert")
+    tekst_bekreftet: bool = Field(
+        default=False,
+        description="True hvis koden har verifisert at teksten er ordrett identisk med kildesiden",
+    )
     kategori: Optional[str] = Field(default=None, description="Settes i jobb 3")
     kilde_type: str  # nettsok | fast_kalender | skjermdump | pdf
     kilde_url: Optional[str] = None

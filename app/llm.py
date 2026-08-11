@@ -4,7 +4,7 @@ import re
 
 from anthropic import Anthropic
 
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
+MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 DEFAULT_STED = "Nes kommune på Romerike i Akershus, Norge (ikke Nes i Hallingdal/Buskerud eller Nesodden)"
 
