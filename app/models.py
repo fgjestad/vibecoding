@@ -85,12 +85,8 @@ class ArtikkelAvsnitt(SQLModel, table=True):
     artikkel_id: int = Field(foreign_key="artikkel.id", index=True)
     arrangement_id: int = Field(foreign_key="arrangement.id")
     tekst: str = Field(description="Omskrevet avsnittstekst. **dobbel stjerne** markerer fet skrift")
+    kategori: str = Field(description="Fritt valgt av Claude, brukes til mellomtitler i artikkelen")
     rekkefolge: int = Field(default=0, index=True)
-    mulig_kopiert: bool = Field(
-        default=False,
-        description="True hvis en enkel etterkontroll fant lange ordrette utdrag fra "
-        "kildeteksten igjen i avsnittet — bør sjekkes manuelt før publisering",
-    )
 
 
 class Innstilling(SQLModel, table=True):

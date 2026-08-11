@@ -28,7 +28,11 @@ def foreslå_kilder(
 Søk etter:
 - kommunens egen arrangementskalender / hva-skjer-side
 - kulturhus, bibliotek, ungdomsklubb
-- idrettslag og idrettsråd i området
+- idrettslag og idrettsråd i området — let spesielt etter TERMINLISTER (kamp-/kampoppsett), \
+ikke bare generelle "om oss"-sider. Mange idrettslag publiserer terminlisten som egen \
+underside eller PDF, ofte separat per idrettsgren (fotball, håndball, innebandy, osv.). Søk \
+opp terminlisten spesifikt for hvert idrettslag du finner i området, slik at lokale kamper \
+kommer med i kalenderen.
 - frivilligsentral, menigheter, historielag
 - lokalavisen Raumnes sin egen kalender (hvis den finnes)
 

@@ -22,6 +22,8 @@ STED_BESKRIVELSE = (
     "Auli, Neskollen, Udnes, Skogbygda, Runni. IKKE Nes i Hallingdal/Buskerud eller Nesodden.)"
 )
 
+MINSTE_SIDETEKST_LENGDE = 500
+
 
 def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[date, date]:
     """Returnerer (forste_dag, siste_dag): fra i morgen og "antall_dager" dager frem."""
@@ -42,6 +44,13 @@ def beregn_arrangement_id(tittel: str, dato_str: str, sted: str) -> str:
     """Innholdsbasert id for å gjenkjenne samme arrangement fra flere kilder."""
     grunnlag = f"{_normaliser_tekst(tittel)}|{dato_str}|{_normaliser_tekst(sted)}"
     return hashlib.sha256(grunnlag.encode()).hexdigest()[:16]
+
+
+def beregn_duplikat_nokkel(tittel: str, dato_str: str) -> str:
+    """Løsere nøkkel enn arrangement_id (som også krever eksakt samme stedstekst) — brukes
+    til å oppdage sannsynlige duplikater på tvers av kilder, f.eks. samme konsert oppført med
+    litt ulik stedsformulering to steder."""
+    return f"{_normaliser_tekst(tittel)}|{dato_str}"
 
 
 def beregn_signatur(tittel: str, arrangor: str | None, dato_str: str) -> str:
@@ -234,6 +243,12 @@ def hent_fra_kilde(
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
 
     resultat = _hent_side_tekst(kilde.url)
+    if resultat and len(resultat[0]) < MINSTE_SIDETEKST_LENGDE:
+        # Mistenkelig lite tekst — sannsynligvis en side der innholdet lastes inn med
+        # JavaScript etter at siden er hentet (f.eks. en kalender-widget), så den
+        # programmatiske hentingen har ikke fått med de faktiske arrangementene. Gå rett
+        # til reserveløsningen i stedet for å tolke en nesten tom side som "ingen treff".
+        resultat = None
     if resultat:
         sidetekst, endelig_url = resultat
         arrangementer = _hent_fra_kilde_via_sidetekst(kilde, sidetekst, instruks)

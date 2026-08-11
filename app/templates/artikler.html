@@ -17,8 +17,7 @@
     <p class="undertittel">
       Skriver én samlet artikkel for perioden {{ forste_dag.strftime("%d.%m.%Y") }} –
       {{ siste_dag.strftime("%d.%m.%Y") }} (lengden på perioden endres på Innhøsting-siden),
-      basert på arrangementene du har valgt der. Teksten er omskrevet av Claude med egne ord —
-      aldri kopiert direkte fra kildene. Ingenting publiseres automatisk.
+      basert på arrangementene du har valgt der. Ingenting publiseres automatisk.
     </p>
 
     {% if feilmelding %}
@@ -29,7 +28,16 @@
     {% endif %}
 
     <form method="post" action="/artikler/generer" id="generer-skjema" class="skjema-kort">
-      <button type="submit" class="primær" id="generer-knapp">Generer artikkel</button>
+      <label>Stilinstruks til Claude (redigerbar — forhåndsutfylt med standarden)
+        <textarea
+          name="instruks"
+          rows="12"
+          style="width: 100%; font-family: monospace; font-size: 0.85rem; margin-top: 0.3rem;"
+        >{{ artikkel_instruks_verdi }}</textarea>
+      </label>
+      <button type="submit" class="primær" id="generer-knapp" style="margin-top: 0.75rem;">
+        Generer artikkel
+      </button>
       <p class="meta" style="margin: 0.5rem 0 0;">
         Erstatter en eventuell tidligere generert artikkel med en ny, basert på gjeldende utvalg.
       </p>
@@ -67,6 +75,9 @@
         </div>
 
         {% for a in avsnitt %}
+          {% if a.ny_kategori %}
+            <h2 style="margin-top: 1.5rem;">{{ a.kategori }}</h2>
+          {% endif %}
           <div class="kort" style="margin-top: 0.75rem;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
               <div style="flex: 1;">
@@ -74,14 +85,11 @@
                   name="avsnitt_{{ a.id }}"
                   class="avsnitt-tekst"
                   data-kilde-url="{{ a.kilde_url or '' }}"
+                  data-kategori="{{ a.kategori }}"
+                  data-ny-kategori="{{ 'true' if a.ny_kategori else 'false' }}"
                   rows="4"
                   style="width: 100%; font-family: inherit;"
                 >{{ a.tekst }}</textarea>
-                {% if a.mulig_kopiert %}
-                  <span class="tag tag-advarsel">
-                    Sjekk denne — mulig ordrett utdrag fra kilde funnet
-                  </span>
-                {% endif %}
                 <div class="meta" style="margin-top: 0.3rem;">
                   Kilde: {{ a.kilde_tittel }}
                   {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
@@ -160,7 +168,12 @@
           var ingress = document.getElementById("artikkel-ingress").value;
           var avsnitt = [];
           document.querySelectorAll(".avsnitt-tekst").forEach(function (el) {
-            avsnitt.push({ tekst: el.value, kildeUrl: el.dataset.kildeUrl });
+            avsnitt.push({
+              tekst: el.value,
+              kildeUrl: el.dataset.kildeUrl,
+              kategori: el.dataset.kategori,
+              nyKategori: el.dataset.nyKategori === "true",
+            });
           });
           return { tittel: tittel, ingress: ingress, avsnitt: avsnitt };
         }
@@ -178,6 +191,10 @@
           var data = samleArtikkel();
           var deler = [data.tittel, "", data.ingress, ""];
           data.avsnitt.forEach(function (a) {
+            if (a.nyKategori) {
+              deler.push(a.kategori.toUpperCase());
+              deler.push("");
+            }
             deler.push(markdownTilRentekst(a.tekst));
             deler.push("");
           });
@@ -189,19 +206,25 @@
         function kopierFormatert() {
           var data = samleArtikkel();
           var html =
-            "<h2>" + escapeHtml(data.tittel) + "</h2><p><em>" + escapeHtml(data.ingress) + "</em></p>";
+            "<h1>" + escapeHtml(data.tittel) + "</h1><p><em>" + escapeHtml(data.ingress) + "</em></p>";
           data.avsnitt.forEach(function (a) {
+            if (a.nyKategori) {
+              html += "<h2>" + escapeHtml(a.kategori) + "</h2>";
+            }
             html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
           });
-          var plain =
-            data.tittel +
-            "\n\n" +
-            data.ingress +
-            "\n\n" +
-            data.avsnitt.map(function (a) { return markdownTilRentekst(a.tekst); }).join("\n\n");
+          var plain = [data.tittel, "", data.ingress, ""];
+          data.avsnitt.forEach(function (a) {
+            if (a.nyKategori) {
+              plain.push(a.kategori.toUpperCase());
+              plain.push("");
+            }
+            plain.push(markdownTilRentekst(a.tekst));
+            plain.push("");
+          });
 
           var item = new ClipboardItem({
-            "text/plain": new Blob([plain], { type: "text/plain" }),
+            "text/plain": new Blob([plain.join("\n").trim()], { type: "text/plain" }),
             "text/html": new Blob([html], { type: "text/html" }),
           });
           navigator.clipboard.write([item]).then(function () {

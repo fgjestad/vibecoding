@@ -113,6 +113,9 @@
                 {% if a.forhandsvalgt_bort %}
                   <span class="tag tag-advarsel">Tidligere deaktivert</span>
                 {% endif %}
+                {% if a.id in duplikat_ider %}
+                  <span class="tag tag-advarsel">Mulig duplikat</span>
+                {% endif %}
                 <div class="meta">
                   {{ a.dato }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
                   {% if a.arrangor %} · {{ a.arrangor }}{% endif %}

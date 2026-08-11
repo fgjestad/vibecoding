@@ -8,11 +8,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt
+from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt, standard_artikkel_instruks
 from app.auth import sjekk_passord
 from app.db import get_session, init_db
 from app.harvest import (
     beregn_arrangement_id,
+    beregn_duplikat_nokkel,
     beregn_periode,
     beregn_signatur,
     hent_fra_bilde,
@@ -280,8 +281,14 @@ def _lagre_arrangement(
     data: dict,
     sett_ider: set[str],
     ekskluderte_signaturer: set[str],
+    duplikat_nokler: set[str],
 ) -> bool:
-    """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret."""
+    """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret.
+
+    Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før.
+    Sannsynlige duplikater (samme tittel+dato, men ulik stedstekst — fanges ikke av den
+    eksakte hashen) legges til synlig, men merkes og settes til ikke avhuket som standard,
+    slik at journalisten selv velger hvilken (om noen) som skal brukes."""
     tittel = str(data.get("tittel") or "").strip()
     dato_str = str(data.get("dato") or "").strip()
     sted = str(data.get("sted") or "").strip()
@@ -300,6 +307,10 @@ def _lagre_arrangement(
     signatur = beregn_signatur(tittel, data.get("arrangor"), dato_str)
     forhandsvalgt_bort = signatur in ekskluderte_signaturer
 
+    duplikat_nokkel = beregn_duplikat_nokkel(tittel, dato_str)
+    er_mulig_duplikat = duplikat_nokkel in duplikat_nokler
+    duplikat_nokler.add(duplikat_nokkel)
+
     session.add(
         Arrangement(
             arrangement_id=arrangement_id,
@@ -314,7 +325,7 @@ def _lagre_arrangement(
             kilde_url=data.get("kilde_url"),
             geografisk_relevans=data.get("geografisk_relevans", "usikker"),
             signatur=signatur,
-            valgt=not forhandsvalgt_bort,
+            valgt=not forhandsvalgt_bort and not er_mulig_duplikat,
             forhandsvalgt_bort=forhandsvalgt_bort,
         )
     )
@@ -336,10 +347,20 @@ def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | 
     innstilling = _hent_innstilling(session)
     arrangementer = session.exec(select(Arrangement)).all()
     arrangementer = sorted(arrangementer, key=_sorteringsnokkel)
+
+    antall_pr_nokkel: dict[str, int] = {}
+    for a in arrangementer:
+        nokkel = beregn_duplikat_nokkel(a.tittel, a.dato)
+        antall_pr_nokkel[nokkel] = antall_pr_nokkel.get(nokkel, 0) + 1
+    duplikat_ider = {
+        a.id for a in arrangementer if antall_pr_nokkel[beregn_duplikat_nokkel(a.tittel, a.dato)] > 1
+    }
+
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return {
         "request": request,
         "arrangementer": arrangementer,
+        "duplikat_ider": duplikat_ider,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "antall_dager": innstilling.antall_dager,
@@ -370,7 +391,9 @@ def kjor_innhosting(
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
-    sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
 
     aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
@@ -393,7 +416,9 @@ def kjor_innhosting(
 
     for kilde in aktive_kilder:
         rå, foreslatt_url = resultater.get(kilde.id, ([], None))
-        antall = sum(1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte))
+        antall = sum(
+            1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+        )
         kilde.automatisk_prioritet = float(antall)
         if foreslatt_url:
             kilde.url = foreslatt_url
@@ -499,10 +524,12 @@ async def last_opp_fil(
             ),
         )
 
-    sett_ider = {a.arrangement_id for a in session.exec(select(Arrangement)).all()}
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte)
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
@@ -546,17 +573,20 @@ def _artikler_kontekst(request: Request, session: Session, feilmelding: str | No
             .order_by(ArtikkelAvsnitt.rekkefolge)
         ).all()
         arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
+        forrige_kategori = None
         for rad in rader:
             kilde = arrangement_oppslag.get(rad.arrangement_id)
             avsnitt_liste.append(
                 {
                     "id": rad.id,
                     "tekst": rad.tekst,
-                    "mulig_kopiert": rad.mulig_kopiert,
+                    "kategori": rad.kategori,
+                    "ny_kategori": rad.kategori != forrige_kategori,
                     "kilde_url": kilde.kilde_url if kilde else None,
                     "kilde_tittel": kilde.tittel if kilde else "",
                 }
             )
+            forrige_kategori = rad.kategori
 
     return {
         "request": request,
@@ -564,6 +594,7 @@ def _artikler_kontekst(request: Request, session: Session, feilmelding: str | No
         "avsnitt": avsnitt_liste,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
+        "artikkel_instruks_verdi": standard_artikkel_instruks(),
         "feilmelding": feilmelding,
     }
 
@@ -580,6 +611,7 @@ def artikler_side(
 @app.post("/artikler/generer")
 def generer_artikkel_rute(
     request: Request,
+    instruks: str = Form(...),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -605,7 +637,7 @@ def generer_artikkel_rute(
         )
 
     try:
-        resultat = generer_hel_artikkel(valgte)
+        resultat = generer_hel_artikkel(valgte, instruks=instruks)
     except Exception as e:
         return templates.TemplateResponse(
             "artikler.html",
@@ -635,8 +667,8 @@ def generer_artikkel_rute(
                 artikkel_id=ny_artikkel.id,
                 arrangement_id=avsnitt["arrangement_id"],
                 tekst=avsnitt["tekst"],
+                kategori=avsnitt["kategori"],
                 rekkefolge=rekkefolge,
-                mulig_kopiert=avsnitt["mulig_kopiert"],
             )
         )
     session.commit()
@@ -775,7 +807,7 @@ def hent_mer_for_avsnitt(
         )
 
     if omskrevet:
-        rad.tekst, rad.mulig_kopiert = omskrevet
+        rad.tekst = omskrevet
         session.add(rad)
         session.commit()
 
