@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
@@ -15,6 +16,7 @@ from app.harvest import (
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
+    normaliser_url_for_dedup,
     standard_instruks,
 )
 from app.llm import foreslå_kilder
@@ -24,17 +26,19 @@ app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+MAKS_SAMTIDIGE_KILDER = 5
+
 
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
 
 
-def _kildeliste_respons(request: Request, session: Session):
+def _kildeliste_respons(request: Request, session: Session, melding: str | None = None):
     kilder = session.exec(select(Kilde)).all()
     kilder = sorted(kilder, key=lambda k: k.samlet_sortering, reverse=True)
     return templates.TemplateResponse(
-        "_kildeliste.html", {"request": request, "kilder": kilder}
+        "_kildeliste.html", {"request": request, "kilder": kilder, "melding": melding}
     )
 
 
@@ -140,6 +144,33 @@ def deaktiver_kilde(
         session.add(kilde)
         session.commit()
     return _kildeliste_respons(request, session)
+
+
+@app.post("/kilder/fjern-duplikater")
+def fjern_duplikater(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    """Fjerner kilder med samme URL (etter normalisering), og beholder den med høyest prioritet."""
+    kilder = session.exec(select(Kilde)).all()
+    grupper: dict[str, list[Kilde]] = {}
+    for k in kilder:
+        nokkel = normaliser_url_for_dedup(k.url)
+        grupper.setdefault(nokkel, []).append(k)
+
+    antall_fjernet = 0
+    for gruppe in grupper.values():
+        if len(gruppe) <= 1:
+            continue
+        gruppe.sort(key=lambda k: k.samlet_sortering, reverse=True)
+        for duplikat in gruppe[1:]:
+            session.delete(duplikat)
+            antall_fjernet += 1
+    session.commit()
+
+    melding = f"{antall_fjernet} duplikat(er) fjernet." if antall_fjernet else "Ingen duplikater funnet."
+    return _kildeliste_respons(request, session, melding)
 
 
 @app.post("/kilder/oppdag")
@@ -298,14 +329,27 @@ def kjor_innhosting(
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
 
     feil_kilder = []
+    resultater: dict[int, tuple[list[dict], str | None]] = {}
+    if aktive_kilder:
+        with ThreadPoolExecutor(max_workers=min(MAKS_SAMTIDIGE_KILDER, len(aktive_kilder))) as executor:
+            fremtid_til_kilde = {
+                executor.submit(hent_fra_kilde, kilde, forste_dag, siste_dag, instruks): kilde
+                for kilde in aktive_kilder
+            }
+            for fremtid in as_completed(fremtid_til_kilde):
+                kilde = fremtid_til_kilde[fremtid]
+                try:
+                    resultater[kilde.id] = fremtid.result()
+                except Exception as e:
+                    resultater[kilde.id] = ([], None)
+                    feil_kilder.append(f"{kilde.navn} ({e})")
+
     for kilde in aktive_kilder:
-        try:
-            rå = hent_fra_kilde(kilde, forste_dag, siste_dag, instruks=instruks)
-        except Exception as e:
-            rå = []
-            feil_kilder.append(f"{kilde.navn} ({e})")
+        rå, foreslatt_url = resultater.get(kilde.id, ([], None))
         antall = sum(1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte))
         kilde.automatisk_prioritet = float(antall)
+        if foreslatt_url:
+            kilde.url = foreslatt_url
         session.add(kilde)
 
     session.commit()

@@ -6,6 +6,7 @@ import re
 import unicodedata
 from datetime import date, timedelta
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import httpx
 from anthropic import Anthropic
@@ -103,8 +104,9 @@ def _html_til_tekst(html: str) -> str:
     return uttrekker.hent_tekst()
 
 
-def _hent_side_tekst(url: str) -> str | None:
-    """Henter en URL programmatisk og returnerer synlig tekst. None ved feil."""
+def _hent_side_tekst(url: str) -> tuple[str, str] | None:
+    """Henter en URL programmatisk. Returnerer (synlig_tekst, endelig_url_etter_omdirigering),
+    eller None ved feil."""
     try:
         respons = httpx.get(
             url,
@@ -120,7 +122,24 @@ def _hent_side_tekst(url: str) -> str | None:
     if "html" not in content_type and "text" not in content_type:
         return None
 
-    return _html_til_tekst(respons.text)
+    return _html_til_tekst(respons.text), str(respons.url)
+
+
+def _vertsnavn(url: str) -> str:
+    vert = urlparse(url).hostname or ""
+    return vert[4:] if vert.startswith("www.") else vert
+
+
+def _samme_domene(url_a: str, url_b: str) -> bool:
+    return bool(_vertsnavn(url_a)) and _vertsnavn(url_a) == _vertsnavn(url_b)
+
+
+def normaliser_url_for_dedup(url: str) -> str:
+    """Normaliserer en URL for duplikatsjekk (ignorerer protokoll, www og etterslengende /)."""
+    url = (url or "").strip().lower()
+    url = re.sub(r"^https?://", "", url)
+    url = re.sub(r"^www\.", "", url)
+    return url.rstrip("/")
 
 
 def _normaliser_for_sammenligning(tekst: str) -> str:
@@ -197,8 +216,12 @@ def hent_fra_kilde(
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
-) -> list[dict]:
-    """Henter arrangementer fra én kilde-URL.
+) -> tuple[list[dict], str | None]:
+    """Henter arrangementer fra én kilde-URL. Returnerer (arrangementer, foreslått_url).
+
+    foreslått_url er en mer presis URL for kilden (f.eks. etter omdirigering, eller
+    foreslått av Claude) hvis vi fant en, ellers None — brukes til å oppdatere kildelisten
+    slik at neste kjøring kan hente direkte uten omveier.
 
     Prøver først å hente siden programmatisk og la Claude lese av den rå teksten — da kan
     hvert "original_tekst"-utdrag verifiseres kode-messig mot det som faktisk står på siden
@@ -207,24 +230,28 @@ def hent_fra_kilde(
     da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes til False.
     """
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return []
+        return [], None
 
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
 
-    sidetekst = _hent_side_tekst(kilde.url)
-    if sidetekst:
+    resultat = _hent_side_tekst(kilde.url)
+    if resultat:
+        sidetekst, endelig_url = resultat
         arrangementer = _hent_fra_kilde_via_sidetekst(kilde, sidetekst, instruks)
         if arrangementer is not None:
             for a in arrangementer:
                 a["kilde_type"] = "fast_kalender"
                 a["kilde_url"] = kilde.url
                 a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), sidetekst)
-            return arrangementer
+            foreslatt_url = None
+            if endelig_url and endelig_url != kilde.url and _samme_domene(endelig_url, kilde.url):
+                foreslatt_url = endelig_url
+            return arrangementer, foreslatt_url
 
     return _hent_fra_kilde_via_web_fetch(kilde, instruks)
 
 
-def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> list[dict]:
+def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> tuple[list[dict], str | None]:
     """Reserveløsning: Claude henter siden selv via web_fetch-verktøyet.
 
     Brukes kun når programmatisk henting av siden feiler. Ordrett samsvar kan da ikke
@@ -232,6 +259,11 @@ def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> list[dict]:
     """
     client = Anthropic()
     prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde.url}
+
+Hvis den faktiske arrangementsoversikten ligger på en mer presis underside enn URL-en over \
+(f.eks. en egen kalender-side du ble ledet til), skriv dette på en egen linje FØRST i svaret, \
+i formatet: FAKTISK_URL: <url>. Hvis utgangspunktet allerede er presist nok, hopp over denne \
+linjen helt.
 
 {instruks}
 """
@@ -244,15 +276,23 @@ def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> list[dict]:
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
-        return []
+        return [], None
 
     tekst = "".join(b.text for b in response.content if b.type == "text")
+
+    foreslatt_url = None
+    url_treff = re.search(r"FAKTISK_URL:\s*(\S+)", tekst)
+    if url_treff:
+        kandidat = url_treff.group(1).strip().rstrip(".,)")
+        if kandidat.startswith("http") and kandidat != kilde.url and _samme_domene(kandidat, kilde.url):
+            foreslatt_url = kandidat
+
     arrangementer = _parse_json_liste(tekst)
     for a in arrangementer:
         a["kilde_type"] = "fast_kalender"
         a["kilde_url"] = kilde.url
         a["tekst_bekreftet"] = False
-    return arrangementer
+    return arrangementer, foreslatt_url
 
 
 def hent_fra_bilde(
