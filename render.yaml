@@ -10,6 +10,8 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
+      - key: PYTHON_VERSION
+       value: 3.12.7
       - key: DATABASE_URL
         value: sqlite:////data/data.db
       - key: APP_BRUKER
