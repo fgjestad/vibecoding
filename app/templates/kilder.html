@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kildeliste — Raumnes arrangementer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Kildeliste</h1>
+    <p class="undertittel">
+      Kalendere og arrangementssider som søkes jevnlig (jobb 2). Sortert etter samlet
+      prioritet (manuell + automatisk).
+    </p>
+
+    <h2>Aktive og inaktive kilder</h2>
+    {% if not kilder %}
+      <p class="tom">Ingen kilder lagt til ennå. Legg til en under, eller bruk "oppdag nye kilder".</p>
+    {% endif %}
+    {% for k in kilder %}
+      <div class="kort {{ 'inaktiv' if not k.aktiv else '' }}">
+        <div class="kilde-rad">
+          <div class="kilde-info">
+            <strong>{{ k.navn }}</strong>
+            {% if not k.aktiv %}<span class="tag">inaktiv</span>{% endif %}
+            <div><a href="{{ k.url }}" target="_blank" rel="noopener">{{ k.url }}</a></div>
+            <div class="meta">
+              Manuell prioritet: {{ k.manuell_prioritet }} ·
+              Automatisk prioritet: {{ "%.1f"|format(k.automatisk_prioritet) }} ·
+              Samlet: {{ "%.1f"|format(k.samlet_sortering) }}
+            </div>
+          </div>
+          <div class="handlinger">
+            <details>
+              <summary>Rediger</summary>
+              <form class="skjema-kort" method="post" action="/kilder/{{ k.id }}/rediger" style="margin-top:0.5rem;">
+                <label>Navn
+                  <input type="text" name="navn" value="{{ k.navn }}" required />
+                </label>
+                <label>URL
+                  <input type="url" name="url" value="{{ k.url }}" required />
+                </label>
+                <label>Manuell prioritet
+                  <input type="number" name="manuell_prioritet" value="{{ k.manuell_prioritet }}" />
+                </label>
+                <button type="submit" class="primær" style="margin-top:0.75rem;">Lagre</button>
+              </form>
+            </details>
+            {% if k.aktiv %}
+              <form class="inline" method="post" action="/kilder/{{ k.id }}/deaktiver">
+                <button type="submit">Deaktiver</button>
+              </form>
+            {% else %}
+              <form class="inline" method="post" action="/kilder/{{ k.id }}/aktiver">
+                <button type="submit" class="suksess">Aktiver</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2>Legg til kilde manuelt</h2>
+    <form class="skjema-kort" method="post" action="/kilder">
+      <div class="rad">
+        <div>
+          <label>Navn
+            <input type="text" name="navn" required placeholder="F.eks. Nes kulturhus" />
+          </label>
+        </div>
+        <div>
+          <label>URL
+            <input type="url" name="url" required placeholder="https://..." />
+          </label>
+        </div>
+        <div>
+          <label>Manuell prioritet
+            <input type="number" name="manuell_prioritet" value="0" />
+          </label>
+        </div>
+      </div>
+      <button type="submit" class="primær" style="margin-top:0.75rem;">Legg til</button>
+    </form>
+
+    <h2>Oppdag nye kilder</h2>
+    <p class="undertittel">
+      Bruker Claude med nettsøk til å foreslå kandidat-nettsteder for Nes-området.
+      Ingenting legges til automatisk — du godkjenner hvert forslag under.
+    </p>
+    <form method="post" action="/kilder/oppdag">
+      <button type="submit" class="primær">Søk etter nye kilder</button>
+    </form>
+
+    {% if forslag %}
+      <h2>Ventende forslag ({{ forslag|length }})</h2>
+      {% for f in forslag %}
+        <div class="kort">
+          <div class="kilde-rad">
+            <div class="kilde-info">
+              <strong>{{ f.navn }}</strong>
+              <div><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.url }}</a></div>
+              <div class="meta">{{ f.begrunnelse }}</div>
+            </div>
+            <div class="handlinger">
+              <form class="inline" method="post" action="/forslag/{{ f.id }}/godkjenn">
+                <button type="submit" class="suksess">Godkjenn</button>
+              </form>
+              <form class="inline" method="post" action="/forslag/{{ f.id }}/avvis">
+                <button type="submit" class="faresone">Avvis</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </main>
+</body>
+</html>
