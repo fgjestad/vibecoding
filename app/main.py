@@ -19,6 +19,23 @@ def on_startup() -> None:
     init_db()
 
 
+def _kildeliste_respons(request: Request, session: Session):
+    kilder = session.exec(select(Kilde)).all()
+    kilder = sorted(kilder, key=lambda k: k.samlet_sortering, reverse=True)
+    return templates.TemplateResponse(
+        "_kildeliste.html", {"request": request, "kilder": kilder}
+    )
+
+
+def _forslagliste_respons(request: Request, session: Session):
+    forslag = session.exec(
+        select(KildeForslag).where(KildeForslag.status == "ny")
+    ).all()
+    return templates.TemplateResponse(
+        "_forslagliste.html", {"request": request, "forslag": forslag}
+    )
+
+
 @app.get("/")
 def forside(
     request: Request,
@@ -53,9 +70,9 @@ def opprett_kilde(
 @app.post("/kilder/{kilde_id}/rediger")
 def rediger_kilde(
     kilde_id: int,
+    request: Request,
     navn: str = Form(...),
     url: str = Form(...),
-    manuell_prioritet: int = Form(0),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -63,15 +80,31 @@ def rediger_kilde(
     if kilde:
         kilde.navn = navn.strip()
         kilde.url = url.strip()
+        session.add(kilde)
+        session.commit()
+    return _kildeliste_respons(request, session)
+
+
+@app.post("/kilder/{kilde_id}/prioritet")
+def sett_prioritet(
+    kilde_id: int,
+    request: Request,
+    manuell_prioritet: int = Form(0),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    kilde = session.get(Kilde, kilde_id)
+    if kilde:
         kilde.manuell_prioritet = manuell_prioritet
         session.add(kilde)
         session.commit()
-    return RedirectResponse(url="/", status_code=303)
+    return _kildeliste_respons(request, session)
 
 
 @app.post("/kilder/{kilde_id}/aktiver")
 def aktiver_kilde(
     kilde_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -80,12 +113,13 @@ def aktiver_kilde(
         kilde.aktiv = True
         session.add(kilde)
         session.commit()
-    return RedirectResponse(url="/", status_code=303)
+    return _kildeliste_respons(request, session)
 
 
 @app.post("/kilder/{kilde_id}/deaktiver")
 def deaktiver_kilde(
     kilde_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -94,7 +128,7 @@ def deaktiver_kilde(
         kilde.aktiv = False
         session.add(kilde)
         session.commit()
-    return RedirectResponse(url="/", status_code=303)
+    return _kildeliste_respons(request, session)
 
 
 @app.post("/kilder/oppdag")
@@ -103,13 +137,25 @@ def oppdag_nye_kilder(
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
-    eksisterende_urler = {k.url for k in session.exec(select(Kilde)).all()}
-    eksisterende_forslag_urler = {
-        f.url for f in session.exec(select(KildeForslag)).all()
-    }
-    forslag = foreslå_kilder(ekstra_instruks=ekstra_instruks)
+    eksisterende_kilder = session.exec(select(Kilde)).all()
+    eksisterende_urler = {k.url for k in eksisterende_kilder}
+    eksisterende_navn = {k.navn.strip().lower() for k in eksisterende_kilder}
+    eksisterende_forslag = session.exec(select(KildeForslag)).all()
+    eksisterende_forslag_urler = {f.url for f in eksisterende_forslag}
+    eksisterende_forslag_navn = {f.navn.strip().lower() for f in eksisterende_forslag}
+
+    forslag = foreslå_kilder(
+        ekstra_instruks=ekstra_instruks,
+        eksisterende_kilder=[k.navn for k in eksisterende_kilder],
+    )
     for f in forslag:
-        if f["url"] in eksisterende_urler or f["url"] in eksisterende_forslag_urler:
+        navn_normalisert = f["navn"].strip().lower()
+        if (
+            f["url"] in eksisterende_urler
+            or f["url"] in eksisterende_forslag_urler
+            or navn_normalisert in eksisterende_navn
+            or navn_normalisert in eksisterende_forslag_navn
+        ):
             continue
         session.add(
             KildeForslag(
@@ -117,6 +163,7 @@ def oppdag_nye_kilder(
             )
         )
         eksisterende_forslag_urler.add(f["url"])
+        eksisterende_forslag_navn.add(navn_normalisert)
     session.commit()
     return RedirectResponse(url="/", status_code=303)
 
@@ -124,6 +171,7 @@ def oppdag_nye_kilder(
 @app.post("/forslag/{forslag_id}/godkjenn")
 def godkjenn_forslag(
     forslag_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -133,12 +181,13 @@ def godkjenn_forslag(
         forslag.status = "godkjent"
         session.add(forslag)
         session.commit()
-    return RedirectResponse(url="/", status_code=303)
+    return _forslagliste_respons(request, session)
 
 
 @app.post("/forslag/{forslag_id}/avvis")
 def avvis_forslag(
     forslag_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -147,4 +196,4 @@ def avvis_forslag(
         forslag.status = "avvist"
         session.add(forslag)
         session.commit()
-    return RedirectResponse(url="/", status_code=303)
+    return _forslagliste_respons(request, session)

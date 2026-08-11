@@ -9,7 +9,11 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
 DEFAULT_STED = "Nes kommune på Romerike i Akershus, Norge (ikke Nes i Hallingdal/Buskerud eller Nesodden)"
 
 
-def foreslå_kilder(sted: str = DEFAULT_STED, ekstra_instruks: str = "") -> list[dict]:
+def foreslå_kilder(
+    sted: str = DEFAULT_STED,
+    ekstra_instruks: str = "",
+    eksisterende_kilder: list[str] | None = None,
+) -> list[dict]:
     """Bruker Claude med nettsøk til å foreslå kandidat-kilder for arrangementskalendere.
 
     Returnerer en liste med dicts: {"navn", "url", "begrunnelse"}. Tom liste ved feil
@@ -31,6 +35,14 @@ Søk etter:
 Bare ta med nettsteder som faktisk dekker Nes kommune på Romerike spesifikt, ikke generelle \
 regionale eller nasjonale kalendere. Flagg i begrunnelsen hvis du er usikker på geografisk \
 relevans.
+"""
+
+    if eksisterende_kilder:
+        liste = "\n".join(f"- {navn}" for navn in eksisterende_kilder)
+        prompt += f"""
+Disse aktørene/kildene er allerede i kildelisten fra før. IKKE foreslå dem på nytt, selv om du \
+finner en litt annen URL, skrivemåte eller underside for samme aktør:
+{liste}
 """
 
     if ekstra_instruks.strip():

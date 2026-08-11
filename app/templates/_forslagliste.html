@@ -1,0 +1,24 @@
+<div id="forslag-liste">
+  {% if forslag %}
+    <h2>Ventende forslag ({{ forslag|length }})</h2>
+    {% for f in forslag %}
+      <div class="kort">
+        <div class="kilde-rad">
+          <div class="kilde-info">
+            <strong>{{ f.navn }}</strong>
+            <div><a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.url }}</a></div>
+            <div class="meta">{{ f.begrunnelse }}</div>
+          </div>
+          <div class="handlinger">
+            <form hx-post="/forslag/{{ f.id }}/godkjenn" hx-target="#forslag-liste" hx-swap="outerHTML">
+              <button type="submit" class="suksess">Godkjenn</button>
+            </form>
+            <form hx-post="/forslag/{{ f.id }}/avvis" hx-target="#forslag-liste" hx-swap="outerHTML">
+              <button type="submit" class="faresone">Avvis</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
