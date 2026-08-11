@@ -295,6 +295,76 @@ linjen helt.
     return arrangementer, foreslatt_url
 
 
+def hent_mer_info(
+    kilde_url: str | None,
+    tittel: str,
+    dato: str,
+    klokkeslett: str | None,
+    sted: str,
+) -> tuple[str | None, bool, str | None]:
+    """Prøver å finne mer utfyllende tekst for ETT bestemt arrangement, f.eks. ved å følge
+    en lenke fra oversiktssiden til arrangementets egen detaljside.
+
+    Brukes manuelt (knapp per arrangement) fremfor automatisk for alle, siden det koster ett
+    ekstra AI-kall per arrangement og ville gjort innhøstingen tregere for alle om den kjørte
+    for hvert treff.
+
+    Returnerer (ny_tekst, bekreftet, ny_kilde_url). ny_tekst er None hvis ingenting nytt ble
+    funnet. bekreftet er True kun hvis vi klarte å kode-verifisere teksten mot en side vi
+    hentet selv (samme prinsipp som i hent_fra_kilde).
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY") or not kilde_url:
+        return None, False, None
+
+    client = Anthropic()
+    detaljer = f'kl. {klokkeslett}, ' if klokkeslett else ""
+    prompt = f"""Gå til denne siden: {kilde_url}
+
+Finn arrangementet med tittel "{tittel}" på dato {dato}, {detaljer}sted: {sted}.
+
+Hvis dette arrangementet har en egen detaljside/underside med mer informasjon (ikke bare en \
+kort omtale på oversiktssiden du startet på), gå dit.
+
+Svar med nøyaktig to deler, i denne rekkefølgen:
+1. På egen linje: URL: <adressen til siden du endte opp på>
+2. Deretter all tekst du finner om nettopp dette arrangementet, KOPIERT ORDRETT (ikke \
+omskrevet, ikke oppsummert). Hvis du ikke finner noe mer utfyllende enn det som allerede er \
+oppgitt over, skriv kun ordet INGEN_NY_INFO i stedet for tekst.
+"""
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5}],
+            output_config={"effort": "medium"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception:
+        return None, False, None
+
+    tekst = "".join(b.text for b in response.content if b.type == "text")
+    if "INGEN_NY_INFO" in tekst:
+        return None, False, None
+
+    url_treff = re.search(r"URL:\s*(\S+)", tekst)
+    funnet_url = url_treff.group(1).strip() if url_treff else None
+    ny_tekst = re.sub(r"URL:\s*\S+", "", tekst, count=1).strip()
+    if not ny_tekst:
+        return None, False, None
+
+    bekreftet = False
+    endelig_url = None
+    if funnet_url and funnet_url.startswith("http"):
+        resultat = _hent_side_tekst(funnet_url)
+        if resultat:
+            sidetekst, endelig = resultat
+            bekreftet = _er_ordrett(ny_tekst, sidetekst)
+            if _samme_domene(endelig, kilde_url):
+                endelig_url = endelig
+
+    return ny_tekst, bekreftet, endelig_url
+
+
 def hent_fra_bilde(
     data: bytes,
     media_type: str,

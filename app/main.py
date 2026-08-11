@@ -1,3 +1,4 @@
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 
@@ -16,6 +17,7 @@ from app.harvest import (
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
+    hent_mer_info,
     normaliser_url_for_dedup,
     standard_instruks,
 )
@@ -287,10 +289,20 @@ def _lagre_arrangement(
     return True
 
 
+def _sorteringsnokkel(a: Arrangement) -> tuple:
+    """Sorterer på dato, deretter klokkeslett tolket som klokketid (ikke tekst — "9:00" skal
+    komme før "18:00" samme dag, selv om det ikke er nullutfylt). Arrangementer uten oppgitt
+    klokkeslett kommer sist på sin dato."""
+    if a.klokkeslett:
+        treff = re.match(r"(\d{1,2})[:.](\d{2})", a.klokkeslett.strip())
+        if treff:
+            return (a.dato, 0, int(treff.group(1)), int(treff.group(2)))
+    return (a.dato, 1, 0, 0)
+
+
 def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
-    arrangementer = session.exec(
-        select(Arrangement).order_by(Arrangement.dato, Arrangement.klokkeslett)
-    ).all()
+    arrangementer = session.exec(select(Arrangement)).all()
+    arrangementer = sorted(arrangementer, key=_sorteringsnokkel)
     forste_dag, siste_dag = beregn_periode()
     return {
         "request": request,
@@ -360,6 +372,50 @@ def kjor_innhosting(
             "innhosting.html", _innhosting_kontekst(request, session, feilmelding)
         )
     return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/{arrangement_id}/hent-mer")
+def hent_mer_for_arrangement(
+    arrangement_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    a = session.get(Arrangement, arrangement_id)
+    if not a:
+        return RedirectResponse(url="/innhosting", status_code=303)
+
+    try:
+        ny_tekst, bekreftet, ny_url = hent_mer_info(
+            a.kilde_url, a.tittel, a.dato, a.klokkeslett, a.sted
+        )
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request, session, f"Kunne ikke hente mer info for «{a.tittel}»: {e}"
+            ),
+        )
+
+    if ny_tekst:
+        a.original_tekst = ny_tekst
+        a.tekst_bekreftet = bekreftet
+        if ny_url:
+            a.kilde_url = ny_url
+        session.add(a)
+        session.commit()
+        return templates.TemplateResponse(
+            "innhosting.html", _innhosting_kontekst(request, session)
+        )
+
+    return templates.TemplateResponse(
+        "innhosting.html",
+        _innhosting_kontekst(
+            request,
+            session,
+            f"Fant ikke mer informasjon om «{a.tittel}» enn det som allerede er hentet.",
+        ),
+    )
 
 
 @app.post("/innhosting/tom")
