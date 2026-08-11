@@ -88,9 +88,25 @@
       Bruker Claude med nettsøk til å foreslå kandidat-nettsteder for Nes-området.
       Ingenting legges til automatisk — du godkjenner hvert forslag under.
     </p>
-    <form method="post" action="/kilder/oppdag">
-      <button type="submit" class="primær">Søk etter nye kilder</button>
+    <form class="skjema-kort" method="post" action="/kilder/oppdag" id="oppdag-skjema">
+      <label>Ekstra instruksjoner til søket (valgfritt)
+        <input
+          type="text"
+          name="ekstra_instruks"
+          placeholder="F.eks. fokuser på idrettslag, eller søk også etter religiøse nettsteder"
+        />
+      </label>
+      <button type="submit" class="primær" id="oppdag-knapp" style="margin-top:0.75rem;">
+        Søk etter nye kilder
+      </button>
     </form>
+    <script>
+      document.getElementById("oppdag-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("oppdag-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Søker … (kan ta et halvt minutt)';
+      });
+    </script>
 
     {% if forslag %}
       <h2>Ventende forslag ({{ forslag|length }})</h2>

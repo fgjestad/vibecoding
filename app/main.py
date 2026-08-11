@@ -99,6 +99,7 @@ def deaktiver_kilde(
 
 @app.post("/kilder/oppdag")
 def oppdag_nye_kilder(
+    ekstra_instruks: str = Form(""),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
@@ -106,7 +107,7 @@ def oppdag_nye_kilder(
     eksisterende_forslag_urler = {
         f.url for f in session.exec(select(KildeForslag)).all()
     }
-    forslag = foreslå_kilder()
+    forslag = foreslå_kilder(ekstra_instruks=ekstra_instruks)
     for f in forslag:
         if f["url"] in eksisterende_urler or f["url"] in eksisterende_forslag_urler:
             continue

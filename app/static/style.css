@@ -162,3 +162,26 @@ details summary {
   color: var(--accent);
   margin-top: 1.5rem;
 }
+
+.spinner {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spinn 0.7s linear infinite;
+  vertical-align: -0.15em;
+  margin-right: 0.4em;
+}
+
+@keyframes spinn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+button:disabled {
+  opacity: 0.8;
+  cursor: wait;
+}
