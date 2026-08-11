@@ -103,7 +103,7 @@
                 <strong>{{ a.tittel }}</strong>
                 <span class="tag">{{ a.geografisk_relevans }}</span>
                 {% if a.forhandsvalgt_bort %}
-                  <span class="tag tag-advarsel">fjernet forrige uke</span>
+                  <span class="tag tag-advarsel">Tidligere deaktivert</span>
                 {% endif %}
                 <div class="meta">
                   {{ a.dato }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
@@ -119,6 +119,19 @@
                   Kilde: {{ a.kilde_type }}
                   {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
                 </div>
+                {% if a.kilde_url %}
+                  <div style="margin-top: 0.4rem;">
+                    <button
+                      type="submit"
+                      formaction="/innhosting/{{ a.id }}/hent-mer"
+                      formmethod="post"
+                      class="hent-mer-knapp"
+                      style="font-size: 0.8rem;"
+                    >
+                      Hent mer informasjon
+                    </button>
+                  </div>
+                {% endif %}
               </div>
             </label>
           </div>
@@ -126,6 +139,17 @@
         <button type="submit" class="primær" style="margin-top: 1rem;">Lagre utvalg</button>
       </form>
     {% endif %}
+    <script>
+      document.querySelectorAll(".hent-mer-knapp").forEach(function (knapp) {
+        knapp.addEventListener("click", function (event) {
+          // Knappen ligger inni en <label> knyttet til avkrysningsboksen — hindre at
+          // klikket også krysser av/av arrangementet.
+          event.stopPropagation();
+          knapp.disabled = true;
+          knapp.innerHTML = '<span class="spinner"></span> Henter …';
+        });
+      });
+    </script>
   </main>
 </body>
 </html>
