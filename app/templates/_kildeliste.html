@@ -1,4 +1,7 @@
 <div id="kilde-liste">
+  {% if melding %}
+    <p class="meta" style="color: var(--ok);">{{ melding }}</p>
+  {% endif %}
   {% if not kilder %}
     <p class="tom">Ingen kilder lagt til ennå. Legg til en under, eller bruk "oppdag nye kilder".</p>
   {% endif %}

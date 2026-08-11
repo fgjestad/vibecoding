@@ -19,7 +19,17 @@
       prioritet (manuell + automatisk).
     </p>
 
-    <h2>Aktive og inaktive kilder</h2>
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+      <h2>Aktive og inaktive kilder</h2>
+      <form
+        hx-post="/kilder/fjern-duplikater"
+        hx-target="#kilde-liste"
+        hx-swap="outerHTML"
+        hx-confirm="Fjerne kilder med samme URL? Beholder den med høyest prioritet i hver gruppe. Dette kan ikke angres."
+      >
+        <button type="submit" class="faresone">Fjern duplikater</button>
+      </form>
+    </div>
     {% include "_kildeliste.html" %}
 
     <h2>Legg til kilde manuelt</h2>
