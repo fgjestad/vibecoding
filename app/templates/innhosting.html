@@ -214,7 +214,7 @@
                   <span class="tag tag-advarsel">Mulig duplikat</span>
                 {% endif %}
                 <div class="meta">
-                  {{ a.dato }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
+                  {{ a.dato }}{% if a.til_dato %} – {{ a.til_dato }}{% endif %}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
                   {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
                 </div>
                 {% if a.tekst_bekreftet %}
@@ -225,7 +225,7 @@
                 <p style="margin: 0.3rem 0; white-space: pre-line;">{{ a.original_tekst }}</p>
                 <div class="meta">
                   Kilde: {{ a.kilde_type }}
-                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">{{ a.kilde_url | domene }}</a>{% endif %}
                 </div>
                 {% if a.kilde_url %}
                   <div style="margin-top: 0.4rem;">
