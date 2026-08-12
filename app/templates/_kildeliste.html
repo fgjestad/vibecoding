@@ -11,10 +11,15 @@
         <div class="kilde-info">
           <strong>{{ k.navn }}</strong>
           {% if not k.aktiv %}<span class="tag">inaktiv</span>{% endif %}
+          {% if k.antall_feilede_hentinger > 0 %}
+            <span class="tag tag-advarsel">{{ k.antall_feilede_hentinger }} feilet</span>
+          {% endif %}
           <div><a href="{{ k.url }}" target="_blank" rel="noopener">{{ k.url }}</a></div>
           <div class="meta">
             Automatisk prioritet: {{ "%.1f"|format(k.automatisk_prioritet) }} ·
-            Samlet: {{ "%.1f"|format(k.samlet_sortering) }}
+            Samlet: {{ "%.1f"|format(k.samlet_sortering) }} ·
+            Hentet uten feil: {{ k.antall_vellykkede_hentinger }} ·
+            Feilet: {{ k.antall_feilede_hentinger }}
           </div>
         </div>
         <div class="handlinger">

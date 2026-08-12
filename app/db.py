@@ -28,6 +28,22 @@ def _migrer_arrangement_tabell() -> None:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN tekst_bekreftet BOOLEAN NOT NULL DEFAULT 0"))
 
 
+def _migrer_kilde_tabell() -> None:
+    """Lettvekts-migrering: legger til manglende kolonner på en allerede eksisterende
+    'kilde'-tabell, uten å slette eksisterende rader (kildelisten er kuratert av brukeren
+    og skal aldri gå tapt ved skjemaendringer)."""
+    inspector = inspect(engine)
+    if "kilde" not in inspector.get_table_names():
+        return
+
+    kolonner = {kol["name"] for kol in inspector.get_columns("kilde")}
+    with engine.begin() as conn:
+        if "antall_vellykkede_hentinger" not in kolonner:
+            conn.execute(text("ALTER TABLE kilde ADD COLUMN antall_vellykkede_hentinger INTEGER NOT NULL DEFAULT 0"))
+        if "antall_feilede_hentinger" not in kolonner:
+            conn.execute(text("ALTER TABLE kilde ADD COLUMN antall_feilede_hentinger INTEGER NOT NULL DEFAULT 0"))
+
+
 def _migrer_artikkel_tabell() -> None:
     """'artikkel' er kun avledet, disponibel data (regenereres alltid fra bunnen av jobb 3-
     knappen), så ved skjemaendringer dropper vi den trygt fremfor å migrere kolonne for
@@ -56,6 +72,7 @@ def _migrer_artikkel_tabell() -> None:
 
 def init_db() -> None:
     _migrer_arrangement_tabell()
+    _migrer_kilde_tabell()
     _migrer_artikkel_tabell()
     SQLModel.metadata.create_all(engine)
 

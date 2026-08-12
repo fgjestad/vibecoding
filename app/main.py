@@ -399,7 +399,6 @@ def kjor_innhosting(
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
 
     feil_kilder = []
-    resultater: dict[int, tuple[list[dict], str | None]] = {}
     if aktive_kilder:
         with ThreadPoolExecutor(max_workers=min(MAKS_SAMTIDIGE_KILDER, len(aktive_kilder))) as executor:
             fremtid_til_kilde = {
@@ -409,22 +408,25 @@ def kjor_innhosting(
             for fremtid in as_completed(fremtid_til_kilde):
                 kilde = fremtid_til_kilde[fremtid]
                 try:
-                    resultater[kilde.id] = fremtid.result()
+                    rå, foreslatt_url = fremtid.result()
+                    kilde.antall_vellykkede_hentinger += 1
                 except Exception as e:
-                    resultater[kilde.id] = ([], None)
+                    rå, foreslatt_url = [], None
+                    kilde.antall_feilede_hentinger += 1
                     feil_kilder.append(f"{kilde.navn} ({e})")
 
-    for kilde in aktive_kilder:
-        rå, foreslatt_url = resultater.get(kilde.id, ([], None))
-        antall = sum(
-            1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
-        )
-        kilde.automatisk_prioritet = float(antall)
-        if foreslatt_url:
-            kilde.url = foreslatt_url
-        session.add(kilde)
-
-    session.commit()
+                # Lagre og commit denne kildens resultater med en gang den er ferdig, i
+                # stedet for å vente på at alle kildene skal bli ferdige. Da beholdes alt
+                # som allerede er hentet selv om en senere kilde eller hele kjøringen skulle
+                # stoppe opp underveis.
+                antall = sum(
+                    1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+                )
+                kilde.automatisk_prioritet = float(antall)
+                if foreslatt_url:
+                    kilde.url = foreslatt_url
+                session.add(kilde)
+                session.commit()
 
     if feil_kilder:
         feilmelding = "Disse kildene feilet under innhøsting: " + "; ".join(feil_kilder)

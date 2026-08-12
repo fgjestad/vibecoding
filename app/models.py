@@ -13,6 +13,12 @@ class Kilde(SQLModel, table=True):
     automatisk_prioritet: float = Field(
         default=0.0, description="Beregnet score basert på relevante treff (jobb 2)"
     )
+    antall_vellykkede_hentinger: int = Field(
+        default=0, description="Antall innhøstingskjøringer denne kilden er hentet uten feil fra"
+    )
+    antall_feilede_hentinger: int = Field(
+        default=0, description="Antall innhøstingskjøringer denne kilden har feilet under"
+    )
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
 
     @property
