@@ -16,6 +16,7 @@ from app.harvest import (
     beregn_periode,
     beregn_signatur,
     er_tittel_duplikat,
+    hent_fotballkamper,
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
@@ -102,9 +103,17 @@ def forside(
     forslag = session.exec(
         select(KildeForslag).where(KildeForslag.status == "ny")
     ).all()
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return templates.TemplateResponse(
         "kilder.html",
-        {"request": request, "kilder": kilder, "forslag": forslag},
+        {
+            "request": request,
+            "kilder": kilder,
+            "forslag": forslag,
+            "forste_dag": forste_dag,
+            "siste_dag": siste_dag,
+        },
     )
 
 
@@ -279,6 +288,45 @@ def avvis_forslag(
         session.add(forslag)
         session.commit()
     return _forslagliste_respons(request, session)
+
+
+@app.post("/kilder/hent-fotballkamper")
+def hent_fotballkamper_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    try:
+        rå, antall_feilet = hent_fotballkamper(forste_dag, siste_dag)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, f"Kunne ikke hente fotballkamper: {e}"),
+        )
+
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    for a in rå:
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
+    session.commit()
+
+    if antall_feilet:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request,
+                session,
+                f"{antall_feilet} oppslag mot fotball.no feilet og ble hoppet over. "
+                "Resten ble lagt til i utkastet.",
+            ),
+        )
+    return RedirectResponse(url="/innhosting", status_code=303)
 
 
 def _finn_flerdagsmatch(

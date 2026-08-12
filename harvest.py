@@ -5,6 +5,7 @@ import json
 import os
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from html.parser import HTMLParser
@@ -282,6 +283,186 @@ def _hent_fra_visitgreateroslo(kilde_url: str, forste_dag: date, siste_dag: date
             break
         side += 1
     return arrangementer
+
+
+# Fotballkamper for lokale idrettslag, hentet direkte fra fotball.no (NFFs egen sportslige
+# plattform). Siden er faktisk vanlig, server-rendret HTML (ikke en JS-widget) og støtter
+# filtrering på både dato og klubb via URL-parametre — funnet ved å inspisere sidekilden på
+# https://www.fotball.no/fotballdata/dagens-kamper/. Klubb-ID-ene er hentet fra sidens egen
+# "Velg klubb"-nedtrekksliste for Akershus (kretsId 3), der Nes-klubbene ligger.
+#
+# Bare hjemmekamper tas med (det er det man faktisk kan gå og se lokalt) — kampfilteret på
+# fotball.no returnerer alle kamper klubben er involvert i (både hjemme og borte), så
+# hjemme/borte avgjøres lokalt ved å sjekke om klubbens navn står i Hjemmelag-kolonnen.
+#
+# For flere idretter senere: følg samme mønster (finn tilsvarende kamptjeneste, kartlegg
+# klubb-ID-er, gjenbruk _fotball_lagnavn_normalisert-stilen for hjemme/borte-sjekk).
+FOTBALL_KRETS_AKERSHUS = 3
+FOTBALL_DAGENS_KAMPER_URL = "https://www.fotball.no/fotballdata/dagens-kamper/"
+FOTBALL_KLUBBER = {
+    "Funnefoss Vormsund Idrettslag": 150,
+    "Raumnes & Årnes Idrettslag": 153,
+    "Fenstad Fotballklubb": 148,
+    "Haga Idrettsforening": 151,
+    "Hvam Idrettslag": 152,
+    "Skogbygda Idrettsforening": 154,
+}
+_FOTBALL_KLUBB_SUFFIKSER = (" idrettslag", " fotballklubb", " idrettsforening", " sportsklubb")
+
+
+def _fotball_kortnavn(offisielt_navn: str) -> str:
+    """«Raumnes & Årnes Idrettslag» -> «Raumnes & Årnes» — kamptabellens Hjemmelag-kolonne
+    bruker klubbens korte visningsnavn, uten den formelle organisasjonsformen på slutten."""
+    kort = offisielt_navn.strip()
+    kort_lav = kort.lower()
+    for suffiks in _FOTBALL_KLUBB_SUFFIKSER:
+        if kort_lav.endswith(suffiks):
+            return kort[: -len(suffiks)].strip()
+    return kort
+
+
+def _fotball_lagnavn_normalisert(navn: str) -> str:
+    """Som normaliser_tekst, men erstatter skilletegn (f.eks. «/» i «Funnefoss/Vormsund»)
+    med mellomrom i stedet for å fjerne dem, slik at det fortsatt matcher klubbens navn med
+    mellomrom («Funnefoss Vormsund»)."""
+    navn = unicodedata.normalize("NFKD", (navn or "").lower())
+    navn = re.sub(r"[^\w\s]", " ", navn)
+    navn = re.sub(r"\s+", " ", navn).strip()
+    return navn
+
+
+class _FotballKampTabellParser(HTMLParser):
+    """Parser for kamptabellen på fotball.no sin "dagens kamper"-side. Bygger opp rader som
+    lister av celler, hver celle med tekstinnhold og en eventuell lenke-href (brukt til å
+    hente ut kampens fiksId)."""
+
+    def __init__(self):
+        super().__init__()
+        self._i_tbody = False
+        self._i_td = False
+        self._rad: list[dict] | None = None
+        self.rader: list[list[dict]] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tbody":
+            self._i_tbody = True
+        elif tag == "tr" and self._i_tbody:
+            self._rad = []
+        elif tag == "td" and self._rad is not None:
+            self._i_td = True
+            self._rad.append({"tekst": "", "href": None})
+        elif tag == "a" and self._i_td and self._rad:
+            href = dict(attrs).get("href")
+            if href:
+                self._rad[-1]["href"] = href
+
+    def handle_endtag(self, tag):
+        if tag == "tbody":
+            self._i_tbody = False
+        elif tag == "tr" and self._rad is not None:
+            self.rader.append(self._rad)
+            self._rad = None
+        elif tag == "td":
+            self._i_td = False
+
+    def handle_data(self, data):
+        if self._i_td and self._rad:
+            self._rad[-1]["tekst"] += data
+
+
+def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: date) -> list[dict]:
+    """Henter alle fotballkamper for én klubb på én dato, og returnerer kun hjemmekampene."""
+    respons = httpx.get(
+        FOTBALL_DAGENS_KAMPER_URL,
+        params={
+            "d": FOTBALL_KRETS_AKERSHUS,
+            "c": klubb_id,
+            "startDate": dag.isoformat(),
+            "includeChildren": "false",
+            "includeYouth": "false",
+            "includeAdult": "false",
+        },
+        timeout=20.0,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+    )
+    respons.raise_for_status()
+
+    parser = _FotballKampTabellParser()
+    parser.feed(respons.text)
+
+    kort_navn_normalisert = _fotball_lagnavn_normalisert(_fotball_kortnavn(klubb_navn))
+
+    arrangementer = []
+    for rad in parser.rader:
+        if len(rad) < 6:
+            continue
+        turnering = rad[0]["tekst"].strip()
+        tid = rad[1]["tekst"].strip()
+        hjemmelag = rad[2]["tekst"].strip()
+        resultat = rad[3]["tekst"].strip()
+        bortelag = rad[4]["tekst"].strip()
+        bane = rad[5]["tekst"].strip()
+
+        if not hjemmelag or not bortelag:
+            continue
+        if resultat == "Utsatt":
+            continue
+        if not _fotball_lagnavn_normalisert(hjemmelag).startswith(kort_navn_normalisert):
+            continue  # bortekamp for denne klubben — ikke noe man kan gå og se lokalt
+
+        kamp_href = rad[3]["href"] or (rad[6]["href"] if len(rad) > 6 else None)
+        fiks_id_treff = re.search(r"fiksId=(\d+)", kamp_href or "")
+        kilde_url = (
+            f"https://www.fotball.no/fotballdata/kamp/?fiksId={fiks_id_treff.group(1)}"
+            if fiks_id_treff
+            else FOTBALL_DAGENS_KAMPER_URL
+        )
+
+        original_tekst = f"{turnering}: {hjemmelag} – {bortelag}, {bane}.".strip()
+
+        arrangementer.append(
+            {
+                "tittel": f"{hjemmelag} – {bortelag}",
+                "dato": dag.isoformat(),
+                "klokkeslett": tid or None,
+                "sted": bane,
+                "arrangor": klubb_navn,
+                "original_tekst": original_tekst,
+                "geografisk_relevans": "bekreftet",
+                "kilde_type": "fast_kalender",
+                "kilde_url": kilde_url,
+                "tekst_bekreftet": True,
+            }
+        )
+    return arrangementer
+
+
+def hent_fotballkamper(forste_dag: date, siste_dag: date) -> tuple[list[dict], int]:
+    """Henter hjemmekamper for alle klubbene i FOTBALL_KLUBBER i hele perioden, ett oppslag
+    per klubb per dag (fotball.no støtter kun ett datofilter om gangen). Returnerer
+    (arrangementer, antall_feilede_oppslag) — enkeltoppslag som feiler hopper vi over i
+    stedet for å la hele innhentingen falle, siden det uansett blir mange oppslag."""
+    dager = []
+    dag = forste_dag
+    while dag <= siste_dag:
+        dager.append(dag)
+        dag += timedelta(days=1)
+
+    oppgaver = [(navn, id_, dag) for dag in dager for navn, id_ in FOTBALL_KLUBBER.items()]
+
+    arrangementer: list[dict] = []
+    antall_feilet = 0
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        fremtider = [
+            executor.submit(_hent_fotballkamper_for_klubb_og_dag, navn, id_, dag)
+            for navn, id_, dag in oppgaver
+        ]
+        for fremtid in as_completed(fremtider):
+            try:
+                arrangementer.extend(fremtid.result())
+            except Exception:
+                antall_feilet += 1
+    return arrangementer, antall_feilet
 
 
 def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[date, date]:
