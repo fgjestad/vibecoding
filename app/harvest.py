@@ -792,11 +792,25 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
     Prokom-API-et uten AI, så en feil her betyr enten at siden/widgeten har endret seg, eller
     at det reelt sett ikke er noen oppføringer i perioden.
 
-    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
-    rå_resultat = _hent_side_raw(NES_KOMMUNE_KALENDER_URL)
-    if not rå_resultat:
-        return [], "Klarte ikke å hente siden i det hele tatt (nettverksfeil, eller siden blokkerte forespørselen)."
+    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess.
 
+    Henter siden selv (i stedet for å gjenbruke _hent_side_raw) for å kunne skille konkret
+    mellom en tilkoblingsfeil (DNS/tidsavbrudd) og at siden faktisk svarte, men med en
+    statuskode som tyder på blokkering (f.eks. 403 fra en bot-beskyttelse)."""
+    try:
+        respons = httpx.get(
+            NES_KOMMUNE_KALENDER_URL,
+            timeout=20.0,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+        )
+    except httpx.HTTPError as e:
+        return [], f"Klarte ikke å koble til siden: {type(e).__name__}: {e}"
+
+    if respons.status_code != 200:
+        return [], f"Siden svarte med statuskode {respons.status_code} (forventet 200) — kan tyde på blokkering."
+
+    rå_resultat = (respons.text, str(respons.url))
     widget = _finn_prokom_widget(rå_resultat[0])
     if not widget:
         return [], (
