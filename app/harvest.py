@@ -580,3 +580,42 @@ papiravisen). Se gjennom dokumentet og hent ut arrangementene som er omtalt.
         a["kilde_url"] = None
         a["tekst_bekreftet"] = False
     return arrangementer
+
+
+def hent_fra_tekst(
+    tekst: str,
+    forste_dag: date,
+    siste_dag: date,
+    instruks: str | None = None,
+) -> list[dict]:
+    """Tolker ren tekst limt inn av brukeren (f.eks. kopiert fra et Facebook-innlegg) og
+    henter ut arrangementer. I motsetning til skjermdump/PDF kan vi her faktisk verifisere
+    ordrett samsvar i kode, siden vi allerede har hele kildeteksten liggende."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return []
+
+    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
+    client = Anthropic()
+    prompt = f"""Dette er tekst limt inn av brukeren (f.eks. kopiert fra et innlegg om ett \
+eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene som er omtalt.
+
+--- LIMT INN TEKST ---
+{tekst[:100000]}
+--- SLUTT LIMT INN TEKST ---
+
+{instruks}
+"""
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        output_config={"effort": "medium"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    svar = "".join(b.text for b in response.content if b.type == "text")
+    arrangementer = _parse_json_liste(svar)
+    for a in arrangementer:
+        a["kilde_type"] = "limt_inn_tekst"
+        a["kilde_url"] = None
+        a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), tekst)
+    return arrangementer

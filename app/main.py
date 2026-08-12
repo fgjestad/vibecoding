@@ -19,6 +19,7 @@ from app.harvest import (
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
+    hent_fra_tekst,
     hent_mer_info,
     normaliser_url_for_dedup,
     standard_instruks,
@@ -544,6 +545,40 @@ async def last_opp_fil(
             _innhosting_kontekst(
                 request, session, f"Kunne ikke tolke filen '{fil.filename}': {e}"
             ),
+        )
+
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    for a in rå:
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/lim-inn-tekst")
+async def lim_inn_tekst(
+    request: Request,
+    tekst: str = Form(...),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    if not tekst.strip():
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, "Ingen tekst ble limt inn."),
+        )
+
+    try:
+        rå = hent_fra_tekst(tekst, forste_dag, siste_dag)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, f"Kunne ikke tolke den limte inn teksten: {e}"),
         )
 
     eksisterende = session.exec(select(Arrangement)).all()
