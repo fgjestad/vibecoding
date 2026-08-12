@@ -59,15 +59,26 @@
       For arrangementer som kun finnes på Facebook (last opp skjermdump) eller i papiravisen
       (last opp PDF). Legges til i utkastet under, i tillegg til det som hentes automatisk.
     </p>
+
+    <div
+      id="lim-inn-omrade"
+      contenteditable="true"
+      class="skjema-kort"
+      style="text-align: center; color: var(--muted); cursor: text; border-style: dashed; outline: none;"
+    >
+      Klikk her og lim inn (Ctrl+V) et bilde eller en tekst du har kopiert — slipper å lagre en fil først
+    </div>
+
     <form
       class="skjema-kort"
       method="post"
       action="/innhosting/last-opp"
       enctype="multipart/form-data"
       id="last-opp-skjema"
+      style="margin-top: 0.75rem;"
     >
       <label>Fil (bilde av innlegg, eller PDF)
-        <input type="file" name="fil" accept="image/*,application/pdf" required />
+        <input type="file" name="fil" id="fil-input" accept="image/*,application/pdf" required />
       </label>
       <button type="submit" class="primær" id="last-opp-knapp" style="margin-top:0.75rem;">
         Last opp og tolk
@@ -79,6 +90,72 @@
         knapp.disabled = true;
         knapp.innerHTML = '<span class="spinner"></span> Tolker fil …';
       });
+    </script>
+
+    <form
+      class="skjema-kort"
+      method="post"
+      action="/innhosting/lim-inn-tekst"
+      id="lim-inn-tekst-skjema"
+      style="margin-top: 0.75rem; display: none;"
+    >
+      <label>Limt inn tekst
+        <textarea
+          name="tekst"
+          id="tekst-input"
+          rows="8"
+          style="width: 100%; font-family: inherit;"
+        ></textarea>
+      </label>
+      <button type="submit" class="primær" id="lim-inn-tekst-knapp" style="margin-top:0.75rem;">
+        Last opp og tolk
+      </button>
+    </form>
+    <script>
+      (function () {
+        var limInnOmrade = document.getElementById("lim-inn-omrade");
+        var filInput = document.getElementById("fil-input");
+        var tekstSkjema = document.getElementById("lim-inn-tekst-skjema");
+        var tekstInput = document.getElementById("tekst-input");
+
+        limInnOmrade.addEventListener("paste", function (e) {
+          e.preventDefault();
+          var clipboard = e.clipboardData || window.clipboardData;
+          var items = clipboard.items || [];
+
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image") !== -1) {
+              var blob = items[i].getAsFile();
+              var dt = new DataTransfer();
+              var filnavn = "skjermdump-" + Date.now() + ".png";
+              dt.items.add(new File([blob], filnavn, { type: blob.type }));
+              filInput.files = dt.files;
+              limInnOmrade.textContent = 'Bilde limt inn — trykk "Last opp og tolk" under';
+              limInnOmrade.style.borderColor = "var(--ok)";
+              tekstSkjema.style.display = "none";
+              return;
+            }
+          }
+
+          var tekst = clipboard.getData("text");
+          if (tekst && tekst.trim()) {
+            tekstInput.value = tekst;
+            tekstSkjema.style.display = "block";
+            limInnOmrade.textContent = 'Tekst limt inn — se feltet under, trykk "Last opp og tolk"';
+            limInnOmrade.style.borderColor = "var(--ok)";
+            tekstInput.focus();
+            return;
+          }
+
+          limInnOmrade.textContent = "Fant ikke noe bilde eller tekst i utklippstavlen. Prøv å kopiere på nytt.";
+        });
+
+        tekstSkjema.addEventListener("submit", function () {
+          var knapp = document.getElementById("lim-inn-tekst-knapp");
+          knapp.disabled = true;
+          knapp.innerHTML = '<span class="spinner"></span> Tolker tekst …';
+        });
+      })();
     </script>
 
     <div style="display: flex; justify-content: space-between; align-items: baseline;">
