@@ -5,14 +5,14 @@ import json
 import os
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
+from difflib import SequenceMatcher
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import httpx
 from anthropic import Anthropic
-
-from app.models import Kilde
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
@@ -23,7 +23,7 @@ UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søn
 # Hvam og Oppaker bekreftet via Nes kommunes egen "Municipalities"-liste på ØRU-plattformen.
 NES_STEDER = (
     "Årnes", "Vormsund", "Fenstad", "Auli", "Neskollen", "Udnes", "Skogbygda", "Runni",
-    "Hvam", "Oppaker",
+    "Hvam", "Oppaker", "Rånåsfoss", "Brårud", "Rakeie", "Bjørknes",
 )
 STED_BESKRIVELSE = (
     f"Nes kommune på Romerike i Akershus, Norge (kjente steder: {', '.join(NES_STEDER)}. "
@@ -80,7 +80,7 @@ def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
 
 
 def _hent_fra_prokom_kalender(
-    kilde: Kilde, api_url_mal: str, kalender_sti: str, forste_dag: date, siste_dag: date
+    kilde_url: str, api_url_mal: str, kalender_sti: str, forste_dag: date, siste_dag: date
 ) -> list[dict]:
     """Henter strukturerte arrangementsdata direkte fra Prokom/ØRU-kalenderens eget API, ved
     å gjenbruke API-URL-en widgeten på siden selv sender (kun med egne datoer og en romsligere
@@ -107,7 +107,7 @@ def _hent_fra_prokom_kalender(
         for dag in maned.get("DaysWithEvents") or []:
             hendelser.extend(dag.get("Events") or [])
 
-    parsed = urlparse(kilde.url)
+    parsed = urlparse(kilde_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     kalender_sti = "/" + kalender_sti.strip("/") + "/"
 
@@ -139,7 +139,7 @@ def _hent_fra_prokom_kalender(
             beskrivelse = f"{tittel} – {dato_del}{tid_tekst}, {sted}.".strip()
 
         hendelse_id = hendelse.get("Id")
-        detalj_url = f"{base_url}{kalender_sti}event#{hendelse_id}" if hendelse_id else kilde.url
+        detalj_url = f"{base_url}{kalender_sti}event#{hendelse_id}" if hendelse_id else kilde_url
 
         arrangementer.append(
             {
@@ -178,14 +178,14 @@ def _er_visitgreateroslo_kilde(url: str) -> bool:
 
 
 def _er_nes_sted(sted: str) -> bool:
-    sted_norm = _normaliser_tekst(sted)
+    sted_norm = normaliser_tekst(sted)
     if not sted_norm:
         return False
-    return any(_normaliser_tekst(kjent) == sted_norm for kjent in NES_STEDER)
+    return any(normaliser_tekst(kjent) == sted_norm for kjent in NES_STEDER)
 
 
 def _visitgreateroslo_hendelser_for_post(
-    post: dict, kilde: Kilde, forste_dag: date, siste_dag: date
+    post: dict, kilde_url: str, forste_dag: date, siste_dag: date
 ) -> list[dict]:
     """Gjør ett WordPress-"events"-innlegg om til én arrangement-forekomst per faktiske
     åpningsdag innenfor perioden (et innlegg kan dekke flere datoer med ulike klokkeslett,
@@ -203,7 +203,7 @@ def _visitgreateroslo_hendelser_for_post(
     adresse = str(acf.get("address") or "").strip()
     sted_tekst = f"{sted}, {adresse}" if adresse else sted
     original_tekst = f"{tittel} – {sted_tekst}.".strip()
-    kilde_url = str(post.get("link") or "").strip() or kilde.url
+    kilde_url = str(post.get("link") or "").strip() or kilde_url
 
     hendelser = []
     for periode in acf.get("opening_times") or []:
@@ -248,7 +248,7 @@ def _visitgreateroslo_hendelser_for_post(
     return hendelser
 
 
-def _hent_fra_visitgreateroslo(kilde: Kilde, forste_dag: date, siste_dag: date) -> list[dict]:
+def _hent_fra_visitgreateroslo(kilde_url: str, forste_dag: date, siste_dag: date) -> list[dict]:
     """Henter strukturerte arrangementsdata direkte fra Visit Greater Oslo sitt eget
     WordPress REST-API (samme "events"-endepunkt widgeten på nettsiden selv bruker).
 
@@ -277,12 +277,192 @@ def _hent_fra_visitgreateroslo(kilde: Kilde, forste_dag: date, siste_dag: date) 
             break
 
         for post in poster:
-            arrangementer.extend(_visitgreateroslo_hendelser_for_post(post, kilde, forste_dag, siste_dag))
+            arrangementer.extend(_visitgreateroslo_hendelser_for_post(post, kilde_url, forste_dag, siste_dag))
 
         if len(poster) < 100:
             break
         side += 1
     return arrangementer
+
+
+# Fotballkamper for lokale idrettslag, hentet direkte fra fotball.no (NFFs egen sportslige
+# plattform). Siden er faktisk vanlig, server-rendret HTML (ikke en JS-widget) og støtter
+# filtrering på både dato og klubb via URL-parametre — funnet ved å inspisere sidekilden på
+# https://www.fotball.no/fotballdata/dagens-kamper/. Klubb-ID-ene er hentet fra sidens egen
+# "Velg klubb"-nedtrekksliste for Akershus (kretsId 3), der Nes-klubbene ligger.
+#
+# Bare hjemmekamper tas med (det er det man faktisk kan gå og se lokalt) — kampfilteret på
+# fotball.no returnerer alle kamper klubben er involvert i (både hjemme og borte), så
+# hjemme/borte avgjøres lokalt ved å sjekke om klubbens navn står i Hjemmelag-kolonnen.
+#
+# For flere idretter senere: følg samme mønster (finn tilsvarende kamptjeneste, kartlegg
+# klubb-ID-er, gjenbruk _fotball_lagnavn_normalisert-stilen for hjemme/borte-sjekk).
+FOTBALL_KRETS_AKERSHUS = 3
+FOTBALL_DAGENS_KAMPER_URL = "https://www.fotball.no/fotballdata/dagens-kamper/"
+FOTBALL_KLUBBER = {
+    "Funnefoss Vormsund Idrettslag": 150,
+    "Raumnes & Årnes Idrettslag": 153,
+    "Fenstad Fotballklubb": 148,
+    "Haga Idrettsforening": 151,
+    "Hvam Idrettslag": 152,
+    "Skogbygda Idrettsforening": 154,
+}
+_FOTBALL_KLUBB_SUFFIKSER = (" idrettslag", " fotballklubb", " idrettsforening", " sportsklubb")
+
+
+def _fotball_kortnavn(offisielt_navn: str) -> str:
+    """«Raumnes & Årnes Idrettslag» -> «Raumnes & Årnes» — kamptabellens Hjemmelag-kolonne
+    bruker klubbens korte visningsnavn, uten den formelle organisasjonsformen på slutten."""
+    kort = offisielt_navn.strip()
+    kort_lav = kort.lower()
+    for suffiks in _FOTBALL_KLUBB_SUFFIKSER:
+        if kort_lav.endswith(suffiks):
+            return kort[: -len(suffiks)].strip()
+    return kort
+
+
+def _fotball_lagnavn_normalisert(navn: str) -> str:
+    """Som normaliser_tekst, men erstatter skilletegn (f.eks. «/» i «Funnefoss/Vormsund»)
+    med mellomrom i stedet for å fjerne dem, slik at det fortsatt matcher klubbens navn med
+    mellomrom («Funnefoss Vormsund»)."""
+    navn = unicodedata.normalize("NFKD", (navn or "").lower())
+    navn = re.sub(r"[^\w\s]", " ", navn)
+    navn = re.sub(r"\s+", " ", navn).strip()
+    return navn
+
+
+class _FotballKampTabellParser(HTMLParser):
+    """Parser for kamptabellen på fotball.no sin "dagens kamper"-side. Bygger opp rader som
+    lister av celler, hver celle med tekstinnhold og en eventuell lenke-href (brukt til å
+    hente ut kampens fiksId)."""
+
+    def __init__(self):
+        super().__init__()
+        self._i_tbody = False
+        self._i_td = False
+        self._rad: list[dict] | None = None
+        self.rader: list[list[dict]] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tbody":
+            self._i_tbody = True
+        elif tag == "tr" and self._i_tbody:
+            self._rad = []
+        elif tag == "td" and self._rad is not None:
+            self._i_td = True
+            self._rad.append({"tekst": "", "href": None})
+        elif tag == "a" and self._i_td and self._rad:
+            href = dict(attrs).get("href")
+            if href:
+                self._rad[-1]["href"] = href
+
+    def handle_endtag(self, tag):
+        if tag == "tbody":
+            self._i_tbody = False
+        elif tag == "tr" and self._rad is not None:
+            self.rader.append(self._rad)
+            self._rad = None
+        elif tag == "td":
+            self._i_td = False
+
+    def handle_data(self, data):
+        if self._i_td and self._rad:
+            self._rad[-1]["tekst"] += data
+
+
+def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: date) -> list[dict]:
+    """Henter alle fotballkamper for én klubb på én dato, og returnerer kun hjemmekampene."""
+    respons = httpx.get(
+        FOTBALL_DAGENS_KAMPER_URL,
+        params={
+            "d": FOTBALL_KRETS_AKERSHUS,
+            "c": klubb_id,
+            "startDate": dag.isoformat(),
+            "includeChildren": "false",
+            "includeYouth": "false",
+            "includeAdult": "false",
+        },
+        timeout=20.0,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+    )
+    respons.raise_for_status()
+
+    parser = _FotballKampTabellParser()
+    parser.feed(respons.text)
+
+    kort_navn_normalisert = _fotball_lagnavn_normalisert(_fotball_kortnavn(klubb_navn))
+
+    arrangementer = []
+    for rad in parser.rader:
+        if len(rad) < 6:
+            continue
+        turnering = rad[0]["tekst"].strip()
+        tid = rad[1]["tekst"].strip()
+        hjemmelag = rad[2]["tekst"].strip()
+        resultat = rad[3]["tekst"].strip()
+        bortelag = rad[4]["tekst"].strip()
+        bane = rad[5]["tekst"].strip()
+
+        if not hjemmelag or not bortelag:
+            continue
+        if resultat == "Utsatt":
+            continue
+        if not _fotball_lagnavn_normalisert(hjemmelag).startswith(kort_navn_normalisert):
+            continue  # bortekamp for denne klubben — ikke noe man kan gå og se lokalt
+
+        kamp_href = rad[3]["href"] or (rad[6]["href"] if len(rad) > 6 else None)
+        fiks_id_treff = re.search(r"fiksId=(\d+)", kamp_href or "")
+        kilde_url = (
+            f"https://www.fotball.no/fotballdata/kamp/?fiksId={fiks_id_treff.group(1)}"
+            if fiks_id_treff
+            else FOTBALL_DAGENS_KAMPER_URL
+        )
+
+        original_tekst = f"{turnering}: {hjemmelag} – {bortelag}, {bane}.".strip()
+
+        arrangementer.append(
+            {
+                "tittel": f"{hjemmelag} – {bortelag}",
+                "dato": dag.isoformat(),
+                "klokkeslett": tid or None,
+                "sted": bane,
+                "arrangor": klubb_navn,
+                "original_tekst": original_tekst,
+                "geografisk_relevans": "bekreftet",
+                "kilde_type": "fast_kalender",
+                "kilde_url": kilde_url,
+                "tekst_bekreftet": True,
+            }
+        )
+    return arrangementer
+
+
+def hent_fotballkamper(forste_dag: date, siste_dag: date) -> tuple[list[dict], int]:
+    """Henter hjemmekamper for alle klubbene i FOTBALL_KLUBBER i hele perioden, ett oppslag
+    per klubb per dag (fotball.no støtter kun ett datofilter om gangen). Returnerer
+    (arrangementer, antall_feilede_oppslag) — enkeltoppslag som feiler hopper vi over i
+    stedet for å la hele innhentingen falle, siden det uansett blir mange oppslag."""
+    dager = []
+    dag = forste_dag
+    while dag <= siste_dag:
+        dager.append(dag)
+        dag += timedelta(days=1)
+
+    oppgaver = [(navn, id_, dag) for dag in dager for navn, id_ in FOTBALL_KLUBBER.items()]
+
+    arrangementer: list[dict] = []
+    antall_feilet = 0
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        fremtider = [
+            executor.submit(_hent_fotballkamper_for_klubb_og_dag, navn, id_, dag)
+            for navn, id_, dag in oppgaver
+        ]
+        for fremtid in as_completed(fremtider):
+            try:
+                arrangementer.extend(fremtid.result())
+            except Exception:
+                antall_feilet += 1
+    return arrangementer, antall_feilet
 
 
 def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[date, date]:
@@ -293,7 +473,7 @@ def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[d
     return forste_dag, siste_dag
 
 
-def _normaliser_tekst(tekst: str | None) -> str:
+def normaliser_tekst(tekst: str | None) -> str:
     tekst = unicodedata.normalize("NFKD", (tekst or "").lower().strip())
     tekst = re.sub(r"[^\w\s]", "", tekst)
     tekst = re.sub(r"\s+", " ", tekst)
@@ -302,15 +482,48 @@ def _normaliser_tekst(tekst: str | None) -> str:
 
 def beregn_arrangement_id(tittel: str, dato_str: str, sted: str) -> str:
     """Innholdsbasert id for å gjenkjenne samme arrangement fra flere kilder."""
-    grunnlag = f"{_normaliser_tekst(tittel)}|{dato_str}|{_normaliser_tekst(sted)}"
+    grunnlag = f"{normaliser_tekst(tittel)}|{dato_str}|{normaliser_tekst(sted)}"
     return hashlib.sha256(grunnlag.encode()).hexdigest()[:16]
 
 
-def beregn_duplikat_nokkel(tittel: str, dato_str: str) -> str:
-    """Løsere nøkkel enn arrangement_id (som også krever eksakt samme stedstekst) — brukes
-    til å oppdage sannsynlige duplikater på tvers av kilder, f.eks. samme konsert oppført med
-    litt ulik stedsformulering to steder."""
-    return f"{_normaliser_tekst(tittel)}|{dato_str}"
+def tekstlikhet(a: str, b: str) -> float:
+    """Fuzzy tekstlikhet mellom 0.0 og 1.0 (normalisert — case/tegnsetting-uavhengig).
+
+    Offentlig, gjenbrukt av main.py bl.a. til å oppdage at samme flerdagers-arrangement er
+    oppført som separate endags-rader (se main._finn_flerdagsmatch)."""
+    return SequenceMatcher(None, normaliser_tekst(a), normaliser_tekst(b)).ratio()
+
+
+def er_tittel_duplikat(
+    tittel_a: str, klokkeslett_a: str | None, tittel_b: str, klokkeslett_b: str | None
+) -> bool:
+    """Sjekker om to arrangementer på SAMME DATO sannsynligvis er det samme, hentet fra
+    ulike kilder. Kalles kun for par som allerede er kjent å ha lik dato.
+
+    Kombinerer flere signaler i stedet for å kreve eksakt lik tittel-streng:
+    - Tekstlikhet i tittelen (fanger opp at kilder ofte formulerer samme arrangement litt
+      ulikt, f.eks. "Bingo på Auli grendehus" vs. "Bingokveld, Auli Grendehus").
+    - Klokkeslett, som brukes til å justere hvor streng tekstlikheten må være: samme
+      klokkeslett er et sterkt signal (lavere terskel holder), mens ulikt klokkeslett taler
+      imot at det er samme arrangement.
+    - Tall i tittelen (f.eks. aldersklasse eller runde). Rene tegn-for-tegn-sammenligninger
+      lar seg lure av titler som «Nes IL G14 - Eidsvoll IL G14» vs. «... G16 ...», som er
+      nesten identiske bortsett fra ett siffer — men er to helt ulike kamper. Har begge
+      titler tall, og de ikke er de samme, og klokkeslettet heller ikke stemmer overens,
+      regnes det IKKE som duplikat uansett tekstlikhet."""
+    a_tid = (klokkeslett_a or "").strip()
+    b_tid = (klokkeslett_b or "").strip()
+    samme_tid = bool(a_tid) and bool(b_tid) and a_tid == b_tid
+
+    tall_a = set(re.findall(r"\d+", tittel_a))
+    tall_b = set(re.findall(r"\d+", tittel_b))
+    if tall_a and tall_b and tall_a != tall_b and not samme_tid:
+        return False
+
+    likhet = tekstlikhet(tittel_a, tittel_b)
+    if a_tid and b_tid:
+        return likhet >= 0.55 if samme_tid else likhet >= 0.92
+    return likhet >= 0.75
 
 
 def beregn_signatur(tittel: str, arrangor: str | None, dato_str: str) -> str:
@@ -319,7 +532,7 @@ def beregn_signatur(tittel: str, arrangor: str | None, dato_str: str) -> str:
         ukedag = UKEDAGER[date.fromisoformat(dato_str).weekday()]
     except (ValueError, TypeError):
         ukedag = ""
-    grunnlag = f"{_normaliser_tekst(tittel)}|{_normaliser_tekst(arrangor)}|{ukedag}"
+    grunnlag = f"{normaliser_tekst(tittel)}|{normaliser_tekst(arrangor)}|{ukedag}"
     return hashlib.sha256(grunnlag.encode()).hexdigest()[:16]
 
 
@@ -403,13 +616,13 @@ def _hent_side_tekst(url: str) -> tuple[str, str] | None:
     return _html_til_tekst(rå_html), endelig_url
 
 
-def _vertsnavn(url: str) -> str:
+def vertsnavn(url: str) -> str:
     vert = urlparse(url).hostname or ""
     return vert[4:] if vert.startswith("www.") else vert
 
 
 def _samme_domene(url_a: str, url_b: str) -> bool:
-    return bool(_vertsnavn(url_a)) and _vertsnavn(url_a) == _vertsnavn(url_b)
+    return bool(vertsnavn(url_a)) and vertsnavn(url_a) == vertsnavn(url_b)
 
 
 def normaliser_url_for_dedup(url: str) -> str:
@@ -460,13 +673,13 @@ noen relevante arrangementer, svar med et tomt array: []"""
 
 
 def _hent_fra_kilde_via_sidetekst(
-    kilde: Kilde,
+    kilde_url: str,
     sidetekst: str,
     instruks: str,
 ) -> list[dict] | None:
     """Sender allerede hentet sidetekst til Claude for uttrekk. None hvis API-kallet feiler."""
     client = Anthropic()
-    prompt = f"""Under er den rå teksten fra nettsiden {kilde.url}, hentet automatisk. Bruk KUN \
+    prompt = f"""Under er den rå teksten fra nettsiden {kilde_url}, hentet automatisk. Bruk KUN \
 denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står der.
 
 --- START SIDETEKST ---
@@ -490,7 +703,7 @@ denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står
 
 
 def hent_fra_kilde(
-    kilde: Kilde,
+    kilde_url: str,
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
@@ -513,15 +726,15 @@ def hent_fra_kilde(
     verktøyet; da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes
     til False.
     """
-    if _er_visitgreateroslo_kilde(kilde.url):
-        return _hent_fra_visitgreateroslo(kilde, forste_dag, siste_dag), None
+    if _er_visitgreateroslo_kilde(kilde_url):
+        return _hent_fra_visitgreateroslo(kilde_url, forste_dag, siste_dag), None
 
-    rå_resultat = _hent_side_raw(kilde.url)
+    rå_resultat = _hent_side_raw(kilde_url)
     if rå_resultat:
         widget = _finn_prokom_widget(rå_resultat[0])
         if widget:
             api_url_mal, kalender_sti = widget
-            return _hent_fra_prokom_kalender(kilde, api_url_mal, kalender_sti, forste_dag, siste_dag), None
+            return _hent_fra_prokom_kalender(kilde_url, api_url_mal, kalender_sti, forste_dag, siste_dag), None
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], None
@@ -540,28 +753,28 @@ def hent_fra_kilde(
             resultat = (sidetekst, rå_resultat[1])
     if resultat:
         sidetekst, endelig_url = resultat
-        arrangementer = _hent_fra_kilde_via_sidetekst(kilde, sidetekst, instruks)
+        arrangementer = _hent_fra_kilde_via_sidetekst(kilde_url, sidetekst, instruks)
         if arrangementer is not None:
             for a in arrangementer:
                 a["kilde_type"] = "fast_kalender"
-                a["kilde_url"] = kilde.url
+                a["kilde_url"] = kilde_url
                 a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), sidetekst)
             foreslatt_url = None
-            if endelig_url and endelig_url != kilde.url and _samme_domene(endelig_url, kilde.url):
+            if endelig_url and endelig_url != kilde_url and _samme_domene(endelig_url, kilde_url):
                 foreslatt_url = endelig_url
             return arrangementer, foreslatt_url
 
-    return _hent_fra_kilde_via_web_fetch(kilde, instruks)
+    return _hent_fra_kilde_via_web_fetch(kilde_url, instruks)
 
 
-def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> tuple[list[dict], str | None]:
+def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
     """Reserveløsning: Claude henter siden selv via web_fetch-verktøyet.
 
     Brukes kun når programmatisk henting av siden feiler. Ordrett samsvar kan da ikke
     verifiseres i kode, så alle treff får tekst_bekreftet=False.
     """
     client = Anthropic()
-    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde.url}
+    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde_url}
 
 Hvis den faktiske arrangementsoversikten ligger på en mer presis underside enn URL-en over \
 (f.eks. en egen kalender-side du ble ledet til), skriv dette på en egen linje FØRST i svaret, \
@@ -587,13 +800,13 @@ linjen helt.
     url_treff = re.search(r"FAKTISK_URL:\s*(\S+)", tekst)
     if url_treff:
         kandidat = url_treff.group(1).strip().rstrip(".,)")
-        if kandidat.startswith("http") and kandidat != kilde.url and _samme_domene(kandidat, kilde.url):
+        if kandidat.startswith("http") and kandidat != kilde_url and _samme_domene(kandidat, kilde_url):
             foreslatt_url = kandidat
 
     arrangementer = _parse_json_liste(tekst)
     for a in arrangementer:
         a["kilde_type"] = "fast_kalender"
-        a["kilde_url"] = kilde.url
+        a["kilde_url"] = kilde_url
         a["tekst_bekreftet"] = False
     return arrangementer, foreslatt_url
 

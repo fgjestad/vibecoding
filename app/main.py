@@ -1,6 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
@@ -13,16 +13,20 @@ from app.auth import sjekk_passord
 from app.db import get_session, init_db
 from app.harvest import (
     beregn_arrangement_id,
-    beregn_duplikat_nokkel,
     beregn_periode,
     beregn_signatur,
+    er_tittel_duplikat,
+    hent_fotballkamper,
     hent_fra_bilde,
     hent_fra_kilde,
     hent_fra_pdf,
     hent_fra_tekst,
     hent_mer_info,
+    normaliser_tekst,
     normaliser_url_for_dedup,
     standard_instruks,
+    tekstlikhet,
+    vertsnavn,
 )
 from app.llm import foreslå_kilder
 from app.models import (
@@ -38,6 +42,7 @@ from app.models import (
 app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["domene"] = vertsnavn
 
 MAKS_SAMTIDIGE_KILDER = 5
 
@@ -98,9 +103,17 @@ def forside(
     forslag = session.exec(
         select(KildeForslag).where(KildeForslag.status == "ny")
     ).all()
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return templates.TemplateResponse(
         "kilder.html",
-        {"request": request, "kilder": kilder, "forslag": forslag},
+        {
+            "request": request,
+            "kilder": kilder,
+            "forslag": forslag,
+            "forste_dag": forste_dag,
+            "siste_dag": siste_dag,
+        },
     )
 
 
@@ -277,22 +290,102 @@ def avvis_forslag(
     return _forslagliste_respons(request, session)
 
 
+@app.post("/kilder/hent-fotballkamper")
+def hent_fotballkamper_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    try:
+        rå, antall_feilet = hent_fotballkamper(forste_dag, siste_dag)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, f"Kunne ikke hente fotballkamper: {e}"),
+        )
+
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    for a in rå:
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
+    session.commit()
+
+    if antall_feilet:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request,
+                session,
+                f"{antall_feilet} oppslag mot fotball.no feilet og ble hoppet over. "
+                "Resten ble lagt til i utkastet.",
+            ),
+        )
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+def _finn_flerdagsmatch(
+    tittel: str, tekst: str, sted: str, dato_str: str, kandidater: list[Arrangement]
+) -> Arrangement | None:
+    """Finner et eksisterende arrangement som dette sannsynligvis er en direkte fortsettelse
+    av — samme sted og nesten ordrett lik tittel/tekst, og datoen er nøyaktig én dag før
+    startdatoen eller én dag etter sluttdatoen til det eksisterende. Fanger opp at enkelte
+    kilder oppgir et flerdagers arrangement (f.eks. en utstilling) som separate
+    endags-rader, én per dato, i stedet for én rad med en dato-periode.
+
+    Kun eksakt dags-tilstøtende datoer slås sammen (aldri med hull) — det skiller trygt en
+    faktisk sammenhengende periode fra f.eks. et ukentlig gjentagende arrangement med samme
+    tittel, som ikke skal vises som én lang periode."""
+    ny_dato = date.fromisoformat(dato_str)
+    for eksisterende in kandidater:
+        try:
+            start = date.fromisoformat(eksisterende.dato)
+            slutt = date.fromisoformat(eksisterende.til_dato or eksisterende.dato)
+        except ValueError:
+            continue
+        if ny_dato not in (start - timedelta(days=1), slutt + timedelta(days=1)):
+            continue
+        if normaliser_tekst(sted) != normaliser_tekst(eksisterende.sted):
+            continue
+        if tekstlikhet(tittel, eksisterende.tittel) < 0.85:
+            continue
+        if tekstlikhet(tekst, eksisterende.original_tekst) < 0.85:
+            continue
+        return eksisterende
+    return None
+
+
 def _lagre_arrangement(
     session: Session,
     data: dict,
     sett_ider: set[str],
     ekskluderte_signaturer: set[str],
-    duplikat_nokler: set[str],
+    hittil_pr_dato: dict[str, list[Arrangement]],
+    flerdags_kandidater: list[Arrangement],
 ) -> bool:
-    """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret.
+    """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret
+    (eller slått sammen inn i et eksisterende flerdagers arrangement).
 
     Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før.
-    Sannsynlige duplikater (samme tittel+dato, men ulik stedstekst — fanges ikke av den
-    eksakte hashen) legges til synlig, men merkes og settes til ikke avhuket som standard,
-    slik at journalisten selv velger hvilken (om noen) som skal brukes."""
+
+    Hvis dette tydelig er samme arrangement som et allerede lagret, bare på nabodatoen (se
+    _finn_flerdagsmatch), utvides det eksisterendes dato-periode i stedet for å opprette en
+    ny rad — slik unngås at et flerdagers arrangement vises som mange separate endags-rader.
+
+    Ellers gjelder vanlig duplikatsjekk: sannsynlige duplikater (fanget opp av
+    er_tittel_duplikat — fuzzy tittel-sammenligning mot alt annet lagret på samme dato, se
+    harvest.er_tittel_duplikat) legges til synlig, men avhukes av som standard — både det
+    nylig lagrede og alt tidligere lagret (denne kjøringen eller før) som det matcher — slik
+    at journalisten selv velger hvilket (om noen) i gruppen som skal brukes."""
     tittel = str(data.get("tittel") or "").strip()
     dato_str = str(data.get("dato") or "").strip()
     sted = str(data.get("sted") or "").strip()
+    original_tekst = str(data.get("original_tekst") or "").strip()
     if not tittel or not dato_str:
         return False
     try:
@@ -305,32 +398,59 @@ def _lagre_arrangement(
         return False
     sett_ider.add(arrangement_id)
 
+    flerdagsmatch = _finn_flerdagsmatch(tittel, original_tekst, sted, dato_str, flerdags_kandidater)
+    if flerdagsmatch:
+        if date.fromisoformat(dato_str) < date.fromisoformat(flerdagsmatch.dato):
+            flerdagsmatch.dato = dato_str
+        else:
+            flerdagsmatch.til_dato = dato_str
+        session.add(flerdagsmatch)
+        return True
+
     signatur = beregn_signatur(tittel, data.get("arrangor"), dato_str)
     forhandsvalgt_bort = signatur in ekskluderte_signaturer
 
-    duplikat_nokkel = beregn_duplikat_nokkel(tittel, dato_str)
-    er_mulig_duplikat = duplikat_nokkel in duplikat_nokler
-    duplikat_nokler.add(duplikat_nokkel)
+    klokkeslett = data.get("klokkeslett")
+    samme_dato = hittil_pr_dato.setdefault(dato_str, [])
+    matchende = [
+        annen for annen in samme_dato
+        if er_tittel_duplikat(tittel, klokkeslett, annen.tittel, annen.klokkeslett)
+    ]
+    er_mulig_duplikat = bool(matchende)
+    for annen in matchende:
+        if annen.valgt:
+            annen.valgt = False
+            session.add(annen)
 
-    session.add(
-        Arrangement(
-            arrangement_id=arrangement_id,
-            tittel=tittel,
-            dato=dato_str,
-            klokkeslett=data.get("klokkeslett"),
-            sted=sted,
-            arrangor=data.get("arrangor"),
-            original_tekst=str(data.get("original_tekst") or "").strip(),
-            tekst_bekreftet=bool(data.get("tekst_bekreftet", False)),
-            kilde_type=data.get("kilde_type", "nettsok"),
-            kilde_url=data.get("kilde_url"),
-            geografisk_relevans=data.get("geografisk_relevans", "usikker"),
-            signatur=signatur,
-            valgt=not forhandsvalgt_bort and not er_mulig_duplikat,
-            forhandsvalgt_bort=forhandsvalgt_bort,
-        )
+    nytt = Arrangement(
+        arrangement_id=arrangement_id,
+        tittel=tittel,
+        dato=dato_str,
+        klokkeslett=klokkeslett,
+        sted=sted,
+        arrangor=data.get("arrangor"),
+        original_tekst=original_tekst,
+        tekst_bekreftet=bool(data.get("tekst_bekreftet", False)),
+        kilde_type=data.get("kilde_type", "nettsok"),
+        kilde_url=data.get("kilde_url"),
+        geografisk_relevans=data.get("geografisk_relevans", "usikker"),
+        signatur=signatur,
+        valgt=not forhandsvalgt_bort and not er_mulig_duplikat,
+        forhandsvalgt_bort=forhandsvalgt_bort,
     )
+    session.add(nytt)
+    samme_dato.append(nytt)
+    flerdags_kandidater.append(nytt)
     return True
+
+
+def _hittil_pr_dato(eksisterende: list[Arrangement]) -> dict[str, list[Arrangement]]:
+    """Bygger oppstartstilstanden for duplikatsjekken i _lagre_arrangement, ut fra
+    arrangementer som allerede finnes i utkastet."""
+    hittil_pr_dato: dict[str, list[Arrangement]] = {}
+    for a in eksisterende:
+        hittil_pr_dato.setdefault(a.dato, []).append(a)
+    return hittil_pr_dato
 
 
 def _sorteringsnokkel(a: Arrangement) -> tuple:
@@ -344,18 +464,78 @@ def _sorteringsnokkel(a: Arrangement) -> tuple:
     return (a.dato, 1, 0, 0)
 
 
+def _beregn_duplikatgrupper(arrangementer: list[Arrangement]) -> dict[int, int]:
+    """Finner sannsynlige duplikater på tvers av kilder — se harvest.er_tittel_duplikat for
+    hvordan par sammenlignes. Grupperer først etter dato (billig, hard grense), sammenligner
+    deretter alle par innenfor samme dato parvis, og slår sammen matchende par til grupper
+    med union-find (slik at f.eks. A~B og B~C samles i én gruppe selv om A og C ikke ble
+    direkte sammenlignet som like).
+
+    Returnerer {arrangement_id: gruppe_id} kun for arrangementer som faktisk inngår i en
+    gruppe med mer enn ett medlem — gruppe_id er det laveste id-et i gruppen, og brukes
+    både til visning ("Mulig duplikat") og til å sortere gruppens medlemmer ved siden av
+    hverandre."""
+    per_dato: dict[str, list[Arrangement]] = {}
+    for a in arrangementer:
+        per_dato.setdefault(a.dato, []).append(a)
+
+    foreldre: dict[int, int] = {a.id: a.id for a in arrangementer}
+
+    def finn(x: int) -> int:
+        while foreldre[x] != x:
+            foreldre[x] = foreldre[foreldre[x]]
+            x = foreldre[x]
+        return x
+
+    for gruppe in per_dato.values():
+        for i in range(len(gruppe)):
+            for j in range(i + 1, len(gruppe)):
+                if er_tittel_duplikat(
+                    gruppe[i].tittel, gruppe[i].klokkeslett, gruppe[j].tittel, gruppe[j].klokkeslett
+                ):
+                    rot_i, rot_j = finn(gruppe[i].id), finn(gruppe[j].id)
+                    if rot_i != rot_j:
+                        foreldre[max(rot_i, rot_j)] = min(rot_i, rot_j)
+
+    storrelse: dict[int, int] = {}
+    for a_id in foreldre:
+        rot = finn(a_id)
+        storrelse[rot] = storrelse.get(rot, 0) + 1
+    return {a_id: finn(a_id) for a_id in foreldre if storrelse[finn(a_id)] > 1}
+
+
+def _sorter_med_duplikater_samlet(arrangementer: list[Arrangement]) -> tuple[list[Arrangement], set[int]]:
+    """Som _sorteringsnokkel, men grupper som er flagget som sannsynlige duplikater av
+    hverandre plasseres rett etter hverandre i lista (ankret til gruppens tidligste
+    klokkeslett), i stedet for å kunne havne spredt utover dagens andre arrangementer.
+
+    Returnerer (sortert_liste, duplikat_ider) — duplikat_ider er id-ene til alle
+    arrangementer som inngår i en duplikat-gruppe, til bruk for "Mulig duplikat"-merket."""
+    duplikatgrupper = _beregn_duplikatgrupper(arrangementer)
+
+    gruppe_anker: dict[int, tuple] = {}
+    for a in arrangementer:
+        gruppe_id = duplikatgrupper.get(a.id)
+        if gruppe_id is not None:
+            nokkel = _sorteringsnokkel(a)
+            if gruppe_id not in gruppe_anker or nokkel < gruppe_anker[gruppe_id]:
+                gruppe_anker[gruppe_id] = nokkel
+
+    def full_nokkel(a: Arrangement) -> tuple:
+        egen = _sorteringsnokkel(a)
+        gruppe_id = duplikatgrupper.get(a.id)
+        if gruppe_id is not None:
+            return gruppe_anker[gruppe_id] + (0, gruppe_id, egen)
+        return egen + (1, 0, egen)
+
+    sortert = sorted(arrangementer, key=full_nokkel)
+    return sortert, set(duplikatgrupper.keys())
+
+
 def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
     innstilling = _hent_innstilling(session)
     arrangementer = session.exec(select(Arrangement)).all()
-    arrangementer = sorted(arrangementer, key=_sorteringsnokkel)
-
-    antall_pr_nokkel: dict[str, int] = {}
-    for a in arrangementer:
-        nokkel = beregn_duplikat_nokkel(a.tittel, a.dato)
-        antall_pr_nokkel[nokkel] = antall_pr_nokkel.get(nokkel, 0) + 1
-    duplikat_ider = {
-        a.id for a in arrangementer if antall_pr_nokkel[beregn_duplikat_nokkel(a.tittel, a.dato)] > 1
-    }
+    arrangementer, duplikat_ider = _sorter_med_duplikater_samlet(arrangementer)
 
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return {
@@ -394,7 +574,8 @@ def kjor_innhosting(
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
-    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
 
     aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
@@ -403,7 +584,7 @@ def kjor_innhosting(
     if aktive_kilder:
         with ThreadPoolExecutor(max_workers=min(MAKS_SAMTIDIGE_KILDER, len(aktive_kilder))) as executor:
             fremtid_til_kilde = {
-                executor.submit(hent_fra_kilde, kilde, forste_dag, siste_dag, instruks): kilde
+                executor.submit(hent_fra_kilde, kilde.url, forste_dag, siste_dag, instruks): kilde
                 for kilde in aktive_kilder
             }
             for fremtid in as_completed(fremtid_til_kilde):
@@ -428,7 +609,7 @@ def kjor_innhosting(
                     antall = sum(
                         1
                         for a in rå
-                        if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+                        if _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
                     )
                     kilde.automatisk_prioritet = float(antall)
                     if foreslatt_url:
@@ -549,10 +730,11 @@ async def last_opp_fil(
 
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
-    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
@@ -583,10 +765,11 @@ async def lim_inn_tekst(
 
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
-    duplikat_nokler = {beregn_duplikat_nokkel(a.tittel, a.dato) for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
