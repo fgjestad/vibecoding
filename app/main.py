@@ -582,38 +582,61 @@ def lagre_utvalg(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
+def _hent_gjeldende_artikkel(session: Session) -> Artikkel | None:
+    """Den nyeste artikkelen — eldre artikler slettes ikke lenger, bare arkiveres implisitt
+    ved at en nyere finnes."""
+    return session.exec(select(Artikkel).order_by(Artikkel.id.desc())).first()
+
+
+def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel, arrangement_oppslag: dict) -> list[dict]:
+    rader = session.exec(
+        select(ArtikkelAvsnitt)
+        .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
+        .order_by(ArtikkelAvsnitt.rekkefolge)
+    ).all()
+    avsnitt_liste = []
+    forrige_kategori = None
+    for rad in rader:
+        kilde = arrangement_oppslag.get(rad.arrangement_id)
+        avsnitt_liste.append(
+            {
+                "id": rad.id,
+                "tekst": rad.tekst,
+                "kategori": rad.kategori,
+                "ny_kategori": rad.kategori != forrige_kategori,
+                "kilde_url": kilde.kilde_url if kilde else None,
+                "kilde_tittel": kilde.tittel if kilde else "",
+            }
+        )
+        forrige_kategori = rad.kategori
+    return avsnitt_liste
+
+
 def _artikler_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+    arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
 
-    artikkel = session.exec(select(Artikkel)).first()
-    avsnitt_liste = []
-    if artikkel:
-        rader = session.exec(
-            select(ArtikkelAvsnitt)
-            .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
-            .order_by(ArtikkelAvsnitt.rekkefolge)
-        ).all()
-        arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
-        forrige_kategori = None
-        for rad in rader:
-            kilde = arrangement_oppslag.get(rad.arrangement_id)
-            avsnitt_liste.append(
-                {
-                    "id": rad.id,
-                    "tekst": rad.tekst,
-                    "kategori": rad.kategori,
-                    "ny_kategori": rad.kategori != forrige_kategori,
-                    "kilde_url": kilde.kilde_url if kilde else None,
-                    "kilde_tittel": kilde.tittel if kilde else "",
-                }
-            )
-            forrige_kategori = rad.kategori
+    alle_artikler = session.exec(select(Artikkel).order_by(Artikkel.id.desc())).all()
+    artikkel = alle_artikler[0] if alle_artikler else None
+    avsnitt_liste = _avsnitt_for_artikkel(session, artikkel, arrangement_oppslag) if artikkel else []
+
+    tidligere_artikler = [
+        {
+            "id": eldre.id,
+            "tittel": eldre.tittel,
+            "ingress": eldre.ingress,
+            "opprettet_at": eldre.opprettet_at,
+            "avsnitt": _avsnitt_for_artikkel(session, eldre, arrangement_oppslag),
+        }
+        for eldre in alle_artikler[1:]
+    ]
 
     return {
         "request": request,
         "artikkel": artikkel,
         "avsnitt": avsnitt_liste,
+        "tidligere_artikler": tidligere_artikler,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "artikkel_instruks_verdi": standard_artikkel_instruks(),
@@ -672,12 +695,6 @@ def generer_artikkel_rute(
             _artikler_kontekst(request, session, "Fikk ikke generert noen artikkel. Prøv igjen."),
         )
 
-    for gammel_avsnitt in session.exec(select(ArtikkelAvsnitt)).all():
-        session.delete(gammel_avsnitt)
-    for gammel_artikkel in session.exec(select(Artikkel)).all():
-        session.delete(gammel_artikkel)
-    session.commit()
-
     ny_artikkel = Artikkel(tittel=resultat["tittel"], ingress=resultat["ingress"])
     session.add(ny_artikkel)
     session.commit()
@@ -704,7 +721,7 @@ async def lagre_artikkel(
     _: str = Depends(sjekk_passord),
 ):
     skjema = await request.form()
-    artikkel = session.exec(select(Artikkel)).first()
+    artikkel = _hent_gjeldende_artikkel(session)
     if not artikkel:
         return RedirectResponse(url="/artikler", status_code=303)
 

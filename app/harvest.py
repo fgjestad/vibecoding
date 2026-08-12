@@ -24,6 +24,106 @@ STED_BESKRIVELSE = (
 
 MINSTE_SIDETEKST_LENGDE = 500
 
+# Nes kommunes aktivitetskalender (og noen nabokommuner på samme "ØRU"-plattform) er en
+# JavaScript-widget: selve siden inneholder ingen arrangementer i den rå HTML-en — de hentes
+# separat fra dette API-et etter at siden er lastet i en nettleser. Siden vi ikke kan kjøre
+# JavaScript, henter vi fra dette API-et direkte i stedet for å prøve å skrape (eller be
+# Claude prøve å skrape) den tomme siden. Bonus: ingen AI-kall trengs for denne kilden.
+PROKOM_KALENDER_KOMMUNER = {"nes.kommune.no": "Nes"}
+PROKOM_KALENDER_API = "https://sspkalender.prokom.no/api/tidspunkt"
+PROKOM_BESKRIVELSE_NOKLER = ("beskriv", "description", "ingress", "omtale", "tekst", "info", "innhold")
+
+
+def _er_prokom_kalender(url: str) -> str | None:
+    """Returnerer kommunenavnet (til API-parameteren) hvis URL-en er en kjent Prokom/ØRU-
+    aktivitetskalender, ellers None."""
+    vert = urlparse(url).hostname or ""
+    for kommune_vert, kommune_navn in PROKOM_KALENDER_KOMMUNER.items():
+        if vert.endswith(kommune_vert) and "aktivitetskalender" in url:
+            return kommune_navn
+    return None
+
+
+def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
+    for nokkel, verdi in kalenderobjekt.items():
+        if isinstance(verdi, str) and verdi.strip() and any(n in nokkel.lower() for n in PROKOM_BESKRIVELSE_NOKLER):
+            return verdi.strip()
+    return None
+
+
+def _hent_fra_prokom_kalender(
+    kilde: Kilde, kommune_navn: str, forste_dag: date, siste_dag: date
+) -> list[dict]:
+    """Henter strukturerte arrangementsdata direkte fra Prokom/ØRU-kalenderens eget API.
+
+    Dataene kommer strukturert og direkte fra kildens egen database (ingen AI-omskriving),
+    så original_tekst kan trygt merkes tekst_bekreftet=True."""
+    fra_str = forste_dag.strftime("%d.%m.%Y")
+    til_str = siste_dag.strftime("%d.%m.%Y")
+    url = (
+        f"{PROKOM_KALENDER_API}?Categories=0&SearchText=&DateFrom={fra_str}&DateTo={til_str}"
+        f"&Municipalities={kommune_navn}&Kunde=oru&Id=&ItemDate=&WeekDays=&List=&Count=200&Distributor="
+    )
+    respons = httpx.get(
+        url, timeout=20.0, headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"}
+    )
+    respons.raise_for_status()
+    data = respons.json()
+
+    hendelser = []
+    for maned in data.get("MonthWithEvents") or []:
+        for dag in maned.get("DaysWithEvents") or []:
+            hendelser.extend(dag.get("Events") or [])
+
+    parsed = urlparse(kilde.url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    arrangementer = []
+    for hendelse in hendelser:
+        objekt = hendelse.get("KalenderObjekt") or {}
+        if objekt.get("Avlyst"):
+            continue
+
+        tittel = str(objekt.get("Name") or "").strip()
+        fra_dato = str(hendelse.get("FraDato") or "")
+        if not tittel or not fra_dato:
+            continue
+
+        dato_del, _, tid_del = fra_dato.partition("T")
+        try:
+            hendelse_dato = date.fromisoformat(dato_del)
+        except ValueError:
+            continue
+        if not (forste_dag <= hendelse_dato <= siste_dag):
+            continue
+
+        klokkeslett = tid_del[:5] if tid_del else None
+        sted = str((hendelse.get("Lokasjon") or {}).get("Name") or "").strip()
+
+        beskrivelse = _finn_prokom_beskrivelse(objekt)
+        if not beskrivelse:
+            tid_tekst = f" kl. {klokkeslett}" if klokkeslett else ""
+            beskrivelse = f"{tittel} – {dato_del}{tid_tekst}, {sted}.".strip()
+
+        hendelse_id = hendelse.get("Id")
+        detalj_url = f"{base_url}/aktivitetskalender/event#{hendelse_id}" if hendelse_id else kilde.url
+
+        arrangementer.append(
+            {
+                "tittel": tittel,
+                "dato": dato_del,
+                "klokkeslett": klokkeslett,
+                "sted": sted,
+                "arrangor": None,
+                "original_tekst": beskrivelse,
+                "geografisk_relevans": "bekreftet",
+                "kilde_type": "fast_kalender",
+                "kilde_url": detalj_url,
+                "tekst_bekreftet": True,
+            }
+        )
+    return arrangementer
+
 
 def beregn_periode(antall_dager: int = 14, i_dag: date | None = None) -> tuple[date, date]:
     """Returnerer (forste_dag, siste_dag): fra i morgen og "antall_dager" dager frem."""
@@ -231,12 +331,20 @@ def hent_fra_kilde(
     foreslått av Claude) hvis vi fant en, ellers None — brukes til å oppdatere kildelisten
     slik at neste kjøring kan hente direkte uten omveier.
 
-    Prøver først å hente siden programmatisk og la Claude lese av den rå teksten — da kan
-    hvert "original_tekst"-utdrag verifiseres kode-messig mot det som faktisk står på siden
-    (tekst_bekreftet=True). Hvis den programmatiske hentingen feiler (f.eks. siden krever
-    JavaScript), faller vi tilbake til at Claude selv henter siden med web_fetch-verktøyet;
-    da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes til False.
+    Kjente Prokom/ØRU-kalender-widgets (f.eks. Nes kommunes aktivitetskalender) hentes
+    direkte fra kildens eget API — se _hent_fra_prokom_kalender.
+
+    Ellers prøver vi først å hente siden programmatisk og la Claude lese av den rå teksten —
+    da kan hvert "original_tekst"-utdrag verifiseres kode-messig mot det som faktisk står på
+    siden (tekst_bekreftet=True). Hvis den programmatiske hentingen feiler (f.eks. siden
+    krever JavaScript), faller vi tilbake til at Claude selv henter siden med web_fetch-
+    verktøyet; da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes
+    til False.
     """
+    kommune_navn = _er_prokom_kalender(kilde.url)
+    if kommune_navn:
+        return _hent_fra_prokom_kalender(kilde, kommune_navn, forste_dag, siste_dag), None
+
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], None
 

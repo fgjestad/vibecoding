@@ -39,7 +39,8 @@
         Generer artikkel
       </button>
       <p class="meta" style="margin: 0.5rem 0 0;">
-        Erstatter en eventuell tidligere generert artikkel med en ny, basert på gjeldende utvalg.
+        Den nye artikkelen blir den gjeldende; en eventuell tidligere artikkel blir liggende
+        under "Tidligere artikler" nederst på siden, ikke slettet.
       </p>
     </form>
     <script>
@@ -54,63 +55,65 @@
       <p class="tom" style="margin-top: 2rem;">Ingen artikkel generert ennå.</p>
     {% else %}
       <form method="post" action="/artikler/lagre" id="lagre-skjema" style="margin-top: 2rem;">
-        <div class="kort">
-          <label>Tittel
-            <input
-              type="text"
-              name="tittel"
-              id="artikkel-tittel"
-              value="{{ artikkel.tittel }}"
-              style="width: 100%; font-size: 1.1rem; font-weight: 600;"
-            />
-          </label>
-          <label style="margin-top: 0.75rem;">Ingress
-            <textarea
-              name="ingress"
-              id="artikkel-ingress"
-              rows="3"
-              style="width: 100%; font-family: inherit;"
-            >{{ artikkel.ingress }}</textarea>
-          </label>
-        </div>
+        <div id="gjeldende-artikkel">
+          <div class="kort">
+            <label>Tittel
+              <input
+                type="text"
+                name="tittel"
+                class="artikkel-tittel-felt"
+                value="{{ artikkel.tittel }}"
+                style="width: 100%; font-size: 1.1rem; font-weight: 600;"
+              />
+            </label>
+            <label style="margin-top: 0.75rem;">Ingress
+              <textarea
+                name="ingress"
+                class="artikkel-ingress-felt"
+                rows="3"
+                style="width: 100%; font-family: inherit;"
+              >{{ artikkel.ingress }}</textarea>
+            </label>
+          </div>
 
-        {% for a in avsnitt %}
-          {% if a.ny_kategori %}
-            <h2 style="margin-top: 1.5rem;">{{ a.kategori }}</h2>
-          {% endif %}
-          <div class="kort" style="margin-top: 0.75rem;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
-              <div style="flex: 1;">
-                <textarea
-                  name="avsnitt_{{ a.id }}"
-                  class="avsnitt-tekst"
-                  data-kilde-url="{{ a.kilde_url or '' }}"
-                  data-kategori="{{ a.kategori }}"
-                  data-ny-kategori="{{ 'true' if a.ny_kategori else 'false' }}"
-                  rows="4"
-                  style="width: 100%; font-family: inherit;"
-                >{{ a.tekst }}</textarea>
-                <div class="meta" style="margin-top: 0.3rem;">
-                  Kilde: {{ a.kilde_tittel }}
-                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+          {% for a in avsnitt %}
+            {% if a.ny_kategori %}
+              <h2 style="margin-top: 1.5rem;">{{ a.kategori }}</h2>
+            {% endif %}
+            <div class="kort" style="margin-top: 0.75rem;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+                <div style="flex: 1;">
+                  <textarea
+                    name="avsnitt_{{ a.id }}"
+                    class="avsnitt-tekst"
+                    data-kilde-url="{{ a.kilde_url or '' }}"
+                    data-kategori="{{ a.kategori }}"
+                    data-ny-kategori="{{ 'true' if a.ny_kategori else 'false' }}"
+                    rows="4"
+                    style="width: 100%; font-family: inherit;"
+                  >{{ a.tekst }}</textarea>
+                  <div class="meta" style="margin-top: 0.3rem;">
+                    Kilde: {{ a.kilde_tittel }}
+                    {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                  <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/opp" formmethod="post" title="Flytt opp">↑</button>
+                  <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/ned" formmethod="post" title="Flytt ned">↓</button>
+                  <button
+                    type="submit"
+                    formaction="/artikler/avsnitt/{{ a.id }}/hent-mer"
+                    formmethod="post"
+                    class="hent-mer-knapp"
+                    style="font-size: 0.75rem;"
+                  >
+                    Hent mer info
+                  </button>
                 </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/opp" formmethod="post" title="Flytt opp">↑</button>
-                <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/ned" formmethod="post" title="Flytt ned">↓</button>
-                <button
-                  type="submit"
-                  formaction="/artikler/avsnitt/{{ a.id }}/hent-mer"
-                  formmethod="post"
-                  class="hent-mer-knapp"
-                  style="font-size: 0.75rem;"
-                >
-                  Hent mer info
-                </button>
-              </div>
             </div>
-          </div>
-        {% endfor %}
+          {% endfor %}
+        </div>
 
         <button type="submit" class="primær" style="margin-top: 1rem;">Lagre endringer</button>
       </form>
@@ -126,113 +129,183 @@
       </script>
 
       <div class="skjema-kort" style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-        <button type="button" id="kopier-ren-knapp" onclick="kopierRentekst()">Kopier ren tekst</button>
-        <button type="button" id="kopier-formatert-knapp" onclick="kopierFormatert()">
+        <button type="button" id="kopier-ren-knapp" onclick="kopierRentekst('gjeldende-artikkel', 'kopier-ren-knapp')">
+          Kopier ren tekst
+        </button>
+        <button type="button" id="kopier-formatert-knapp" onclick="kopierFormatert('gjeldende-artikkel', 'kopier-formatert-knapp')">
           Kopier med formatering
         </button>
       </div>
-
-      <script>
-        function escapeHtml(tekst) {
-          return tekst
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-        }
-
-        function markdownTilRentekst(tekst) {
-          return tekst.replace(/\*\*(.+?)\*\*/g, "$1");
-        }
-
-        function markdownTilHtml(tekst, kildeUrl) {
-          var forsteBold = true;
-          return escapeHtml(tekst)
-            .replace(/\*\*(.+?)\*\*/g, function (treff, innhold) {
-              var indre = "<strong>" + innhold + "</strong>";
-              if (forsteBold && kildeUrl) {
-                indre =
-                  '<a href="' +
-                  kildeUrl +
-                  '" target="_blank" rel="noopener"><strong>' +
-                  innhold +
-                  "</strong></a>";
-                forsteBold = false;
-              }
-              return indre;
-            })
-            .replace(/\n/g, "<br>");
-        }
-
-        function samleArtikkel() {
-          var tittel = document.getElementById("artikkel-tittel").value;
-          var ingress = document.getElementById("artikkel-ingress").value;
-          var avsnitt = [];
-          document.querySelectorAll(".avsnitt-tekst").forEach(function (el) {
-            avsnitt.push({
-              tekst: el.value,
-              kildeUrl: el.dataset.kildeUrl,
-              kategori: el.dataset.kategori,
-              nyKategori: el.dataset.nyKategori === "true",
-            });
-          });
-          return { tittel: tittel, ingress: ingress, avsnitt: avsnitt };
-        }
-
-        function varsleKopiert(id) {
-          var knapp = document.getElementById(id);
-          var opprinnelig = knapp.textContent;
-          knapp.textContent = "Kopiert!";
-          setTimeout(function () {
-            knapp.textContent = opprinnelig;
-          }, 1500);
-        }
-
-        function kopierRentekst() {
-          var data = samleArtikkel();
-          var deler = [data.tittel, "", data.ingress, ""];
-          data.avsnitt.forEach(function (a) {
-            if (a.nyKategori) {
-              deler.push(a.kategori.toUpperCase());
-              deler.push("");
-            }
-            deler.push(markdownTilRentekst(a.tekst));
-            deler.push("");
-          });
-          navigator.clipboard.writeText(deler.join("\n").trim()).then(function () {
-            varsleKopiert("kopier-ren-knapp");
-          });
-        }
-
-        function kopierFormatert() {
-          var data = samleArtikkel();
-          var html =
-            "<h1>" + escapeHtml(data.tittel) + "</h1><p><em>" + escapeHtml(data.ingress) + "</em></p>";
-          data.avsnitt.forEach(function (a) {
-            if (a.nyKategori) {
-              html += "<h2>" + escapeHtml(a.kategori) + "</h2>";
-            }
-            html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
-          });
-          var plain = [data.tittel, "", data.ingress, ""];
-          data.avsnitt.forEach(function (a) {
-            if (a.nyKategori) {
-              plain.push(a.kategori.toUpperCase());
-              plain.push("");
-            }
-            plain.push(markdownTilRentekst(a.tekst));
-            plain.push("");
-          });
-
-          var item = new ClipboardItem({
-            "text/plain": new Blob([plain.join("\n").trim()], { type: "text/plain" }),
-            "text/html": new Blob([html], { type: "text/html" }),
-          });
-          navigator.clipboard.write([item]).then(function () {
-            varsleKopiert("kopier-formatert-knapp");
-          });
-        }
-      </script>
     {% endif %}
+
+    {% if tidligere_artikler %}
+      <h2 style="margin-top: 3rem;">Tidligere artikler ({{ tidligere_artikler|length }})</h2>
+      {% for eldre in tidligere_artikler %}
+        <details class="kort" style="margin-top: 0.75rem;">
+          <summary>{{ eldre.opprettet_at.strftime("%d.%m.%Y %H:%M") }} — {{ eldre.tittel }}</summary>
+          <div id="arkivert-{{ eldre.id }}" style="margin-top: 0.75rem;">
+            <label>Tittel
+              <input
+                type="text"
+                class="artikkel-tittel-felt"
+                readonly
+                value="{{ eldre.tittel }}"
+                style="width: 100%; font-size: 1.05rem; font-weight: 600;"
+              />
+            </label>
+            <label style="margin-top: 0.75rem;">Ingress
+              <textarea
+                class="artikkel-ingress-felt"
+                readonly
+                rows="3"
+                style="width: 100%; font-family: inherit;"
+              >{{ eldre.ingress }}</textarea>
+            </label>
+
+            {% for a in eldre.avsnitt %}
+              {% if a.ny_kategori %}
+                <h3 style="margin-top: 1rem;">{{ a.kategori }}</h3>
+              {% endif %}
+              <div style="margin-top: 0.5rem;">
+                <textarea
+                  class="avsnitt-tekst"
+                  readonly
+                  data-kilde-url="{{ a.kilde_url or '' }}"
+                  data-kategori="{{ a.kategori }}"
+                  data-ny-kategori="{{ 'true' if a.ny_kategori else 'false' }}"
+                  rows="4"
+                  style="width: 100%; font-family: inherit;"
+                >{{ a.tekst }}</textarea>
+                <div class="meta" style="margin-top: 0.3rem;">
+                  Kilde: {{ a.kilde_tittel }}
+                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
+                </div>
+              </div>
+            {% endfor %}
+
+            <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+              <button
+                type="button"
+                id="kopier-ren-{{ eldre.id }}"
+                onclick="kopierRentekst('arkivert-{{ eldre.id }}', 'kopier-ren-{{ eldre.id }}')"
+              >
+                Kopier ren tekst
+              </button>
+              <button
+                type="button"
+                id="kopier-formatert-{{ eldre.id }}"
+                onclick="kopierFormatert('arkivert-{{ eldre.id }}', 'kopier-formatert-{{ eldre.id }}')"
+              >
+                Kopier med formatering
+              </button>
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    {% endif %}
+
+    <script>
+      function escapeHtml(tekst) {
+        return tekst
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function markdownTilRentekst(tekst) {
+        return tekst.replace(/\*\*(.+?)\*\*/g, "$1");
+      }
+
+      function markdownTilHtml(tekst, kildeUrl) {
+        var forsteBold = true;
+        return escapeHtml(tekst)
+          .replace(/\*\*(.+?)\*\*/g, function (treff, innhold) {
+            var indre = "<strong>" + innhold + "</strong>";
+            if (forsteBold && kildeUrl) {
+              indre =
+                '<a href="' +
+                kildeUrl +
+                '" target="_blank" rel="noopener"><strong>' +
+                innhold +
+                "</strong></a>";
+              forsteBold = false;
+            }
+            return indre;
+          })
+          .replace(/\n/g, "<br>");
+      }
+
+      function samleArtikkel(container) {
+        var tittelEl = container.querySelector(".artikkel-tittel-felt");
+        var ingressEl = container.querySelector(".artikkel-ingress-felt");
+        var avsnitt = [];
+        container.querySelectorAll(".avsnitt-tekst").forEach(function (el) {
+          avsnitt.push({
+            tekst: el.value,
+            kildeUrl: el.dataset.kildeUrl,
+            kategori: el.dataset.kategori,
+            nyKategori: el.dataset.nyKategori === "true",
+          });
+        });
+        return { tittel: tittelEl.value, ingress: ingressEl.value, avsnitt: avsnitt };
+      }
+
+      function varsleKopiert(id) {
+        var knapp = document.getElementById(id);
+        var opprinnelig = knapp.textContent;
+        knapp.textContent = "Kopiert!";
+        setTimeout(function () {
+          knapp.textContent = opprinnelig;
+        }, 1500);
+      }
+
+      function kopierRentekst(containerId, knappId) {
+        var container = document.getElementById(containerId);
+        var data = samleArtikkel(container);
+        var deler = [data.tittel, "", data.ingress, ""];
+        data.avsnitt.forEach(function (a) {
+          if (a.nyKategori) {
+            deler.push(a.kategori.toUpperCase());
+            deler.push("");
+          }
+          deler.push(markdownTilRentekst(a.tekst));
+          deler.push("");
+        });
+        navigator.clipboard.writeText(deler.join("\n").trim()).then(function () {
+          varsleKopiert(knappId);
+        });
+      }
+
+      function kopierFormatert(containerId, knappId) {
+        var container = document.getElementById(containerId);
+        var data = samleArtikkel(container);
+        var html =
+          "<h1>" + escapeHtml(data.tittel) + "</h1><p><em>" + escapeHtml(data.ingress) + "</em></p>";
+        data.avsnitt.forEach(function (a) {
+          if (a.nyKategori) {
+            html += "<h2>" + escapeHtml(a.kategori) + "</h2>";
+          }
+          html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
+        });
+        var plain = [data.tittel, "", data.ingress, ""];
+        data.avsnitt.forEach(function (a) {
+          if (a.nyKategori) {
+            plain.push(a.kategori.toUpperCase());
+            plain.push("");
+          }
+          plain.push(markdownTilRentekst(a.tekst));
+          plain.push("");
+        });
+
+        var item = new ClipboardItem({
+          "text/plain": new Blob([plain.join("\n").trim()], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        });
+        navigator.clipboard.write([item]).then(function () {
+          varsleKopiert(knappId);
+        });
+      }
+    </script>
   </main>
 </body>
 </html>
