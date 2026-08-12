@@ -43,7 +43,10 @@ class Arrangement(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     arrangement_id: str = Field(index=True, description="Hash av tittel+dato+sted, for dedup")
     tittel: str
-    dato: str  # YYYY-MM-DD
+    dato: str  # YYYY-MM-DD (startdato hvis flerdagers)
+    til_dato: Optional[str] = Field(
+        default=None, description="Sluttdato (YYYY-MM-DD) hvis flerdagers, ellers None"
+    )
     klokkeslett: Optional[str] = None
     sted: str
     arrangor: Optional[str] = None

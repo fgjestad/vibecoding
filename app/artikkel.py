@@ -92,6 +92,7 @@ def generer_hel_artikkel(arrangementer: list[Arrangement], instruks: str | None 
             "id": a.id,
             "tittel": a.tittel,
             "dato": a.dato,
+            "til_dato": a.til_dato,
             "klokkeslett": a.klokkeslett,
             "sted": a.sted,
             "arrangor": a.arrangor,
@@ -103,7 +104,9 @@ def generer_hel_artikkel(arrangementer: list[Arrangement], instruks: str | None 
     client = Anthropic()
     prompt = f"""Du er journalist i lokalavisen Raumnes, som dekker Nes kommune på Romerike i \
 Akershus. Under er en liste med kommende arrangementer i kronologisk rekkefølge (som JSON), \
-hver med en id og tekst hentet fra arrangørens egen nettside.
+hver med en id og tekst hentet fra arrangørens egen nettside. "til_dato" er kun satt for \
+flerdagers arrangementer (f.eks. en utstilling) — betyr at det varer fra "dato" til og med \
+"til_dato"; fraser dette naturlig i teksten (f.eks. "fra 22. til 26. august").
 
 ARRANGEMENTER (i rekkefølgen artikkelen skal ha):
 {json.dumps(grunnlag, ensure_ascii=False, indent=2)}
@@ -172,7 +175,8 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
             # Reserveløsning: Claude hoppet over dette arrangementet — ta med enkel,
             # ikke-omskrevet faktatekst fremfor å miste det stille.
             tid = f" kl. {a.klokkeslett}" if a.klokkeslett else ""
-            avsnitt_tekst = f"**{a.tittel}** – {a.dato}{tid}, {a.sted}."
+            periode = f"{a.dato} – {a.til_dato}" if a.til_dato else a.dato
+            avsnitt_tekst = f"**{a.tittel}** – {periode}{tid}, {a.sted}."
             kategori = "Annet"
         avsnitt.append({"arrangement_id": a.id, "tekst": avsnitt_tekst, "kategori": kategori})
 
@@ -199,6 +203,7 @@ def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | N
     grunnlag = {
         "tittel": a.tittel,
         "dato": a.dato,
+        "til_dato": a.til_dato,
         "klokkeslett": a.klokkeslett,
         "sted": a.sted,
         "arrangor": a.arrangor,
@@ -206,7 +211,9 @@ def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | N
     }
     client = Anthropic()
     prompt = f"""Du er journalist i lokalavisen Raumnes. Skriv ETT avsnitt (til en samleartikkel \
-om kommende arrangementer) om dette arrangementet:
+om kommende arrangementer) om dette arrangementet. "til_dato" er kun satt for flerdagers \
+arrangementer — betyr at det varer fra "dato" til og med "til_dato"; fraser dette naturlig \
+i teksten (f.eks. "fra 22. til 26. august").
 
 {json.dumps(grunnlag, ensure_ascii=False, indent=2)}
 
