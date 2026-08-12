@@ -409,24 +409,44 @@ def kjor_innhosting(
                 kilde = fremtid_til_kilde[fremtid]
                 try:
                     rå, foreslatt_url = fremtid.result()
-                    kilde.antall_vellykkede_hentinger += 1
+                    henting_ok = True
                 except Exception as e:
                     rå, foreslatt_url = [], None
-                    kilde.antall_feilede_hentinger += 1
+                    henting_ok = False
                     feil_kilder.append(f"{kilde.navn} ({e})")
 
                 # Lagre og commit denne kildens resultater med en gang den er ferdig, i
                 # stedet for å vente på at alle kildene skal bli ferdige. Da beholdes alt
                 # som allerede er hentet selv om en senere kilde eller hele kjøringen skulle
-                # stoppe opp underveis.
-                antall = sum(
-                    1 for a in rå if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
-                )
-                kilde.automatisk_prioritet = float(antall)
-                if foreslatt_url:
-                    kilde.url = foreslatt_url
-                session.add(kilde)
-                session.commit()
+                # stoppe opp underveis. Egen try/except rundt selve lagringen: hvis noe
+                # feiler her må sesjonen rulles tilbake før neste kilde behandles — ellers
+                # blir den ubrukelig for resten av kjøringen, og alle senere kilder ville
+                # feile med en forvirrende "session is in 'prepared' state"-feil som egentlig
+                # skyldes denne ene kilden.
+                try:
+                    antall = sum(
+                        1
+                        for a in rå
+                        if _lagre_arrangement(session, a, sett_ider, ekskluderte, duplikat_nokler)
+                    )
+                    kilde.automatisk_prioritet = float(antall)
+                    if foreslatt_url:
+                        kilde.url = foreslatt_url
+                    if henting_ok:
+                        kilde.antall_vellykkede_hentinger += 1
+                    else:
+                        kilde.antall_feilede_hentinger += 1
+                    session.add(kilde)
+                    session.commit()
+                except Exception as e:
+                    session.rollback()
+                    if henting_ok:
+                        feil_kilder.append(f"{kilde.navn} ({e})")
+                    frisk_kilde = session.get(Kilde, kilde.id)
+                    if frisk_kilde:
+                        frisk_kilde.antall_feilede_hentinger += 1
+                        session.add(frisk_kilde)
+                        session.commit()
 
     if feil_kilder:
         feilmelding = "Disse kildene feilet under innhøsting: " + "; ".join(feil_kilder)
