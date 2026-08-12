@@ -835,10 +835,49 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
         return [], direkte_feil or "Ukjent feil."
 
     instruks = standard_instruks(forste_dag, siste_dag)
-    arrangementer, _foreslatt_url = _hent_fra_kilde_via_web_fetch(NES_KOMMUNE_KALENDER_URL, instruks)
+    arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(
+        NES_KOMMUNE_KALENDER_URL, instruks
+    )
     if arrangementer:
         return arrangementer, ""
-    return [], f"{direkte_feil} Reserveløsningen (Claude henter siden selv) fant heller ingenting."
+    return [], f"{direkte_feil} Reserveløsning: {fallback_diagnose}"
+
+
+def _hent_fra_kilde_via_web_fetch_med_diagnose(kilde_url: str, instruks: str) -> tuple[list[dict], str]:
+    """Som _hent_fra_kilde_via_web_fetch, men svelger ikke feil stille — returnerer i stedet
+    en diagnosemelding som forklarer hva som gikk galt (selve Claude-kallet feilet, eller
+    svaret inneholdt ingen gjenkjennbare arrangementer). Brukt av diagnostiser_nes_kalender,
+    der et stille nulltreff er vanskelig å feilsøke for brukeren siden dette er den viktigste
+    enkeltkilden."""
+    client = Anthropic()
+    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde_url}
+
+{instruks}
+"""
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+            output_config={"effort": "medium"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        return [], f"Claude-kallet feilet: {type(e).__name__}: {e}"
+
+    tekst = "".join(b.text for b in response.content if b.type == "text")
+    arrangementer = _parse_json_liste(tekst)
+    for a in arrangementer:
+        a["kilde_type"] = "fast_kalender"
+        a["kilde_url"] = kilde_url
+        a["tekst_bekreftet"] = False
+
+    if not arrangementer:
+        utdrag = tekst.strip()[:300]
+        if utdrag:
+            return [], f"Claude fant ingen arrangementer på siden. Svar (utdrag): {utdrag!r}"
+        return [], "Claude ga et tomt svar (kan tyde på at web_fetch-verktøyet ikke fikk hentet siden)."
+    return arrangementer, ""
 
 
 def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
