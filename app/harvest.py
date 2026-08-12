@@ -30,6 +30,12 @@ STED_BESKRIVELSE = (
     "IKKE Nes i Hallingdal/Buskerud eller Nesodden.)"
 )
 
+# Nes kommunes egen aktivitetskalender — den viktigste enkeltkilden. Kjører på samme
+# Prokom/ØRU-plattform som håndteres generisk av _finn_prokom_widget/_hent_fra_prokom_kalender
+# lenger ned, så den trenger ingen egen hentelogikk — bare en kjent URL å peke hent_fra_kilde
+# direkte på (for en egen "hent akkurat denne kilden nå"-knapp), og noe å telle oppføringer mot.
+NES_KOMMUNE_KALENDER_URL = "https://www.nes.kommune.no/aktivitetskalender/"
+
 MINSTE_SIDETEKST_LENGDE = 500
 
 # Flere kommuner på Øvre Romerike (Nes, Gjerdrum, Nannestad, Hurdal, Eidsvoll m.fl.) bruker
@@ -321,6 +327,14 @@ def _fotball_kortnavn(offisielt_navn: str) -> str:
     return kort
 
 
+def _fotball_sted_kort(bane: str) -> str:
+    """Trekker ut stedsnavnet fra en banetekst (f.eks. «Årnes kg 9er A» -> «Årnes»,
+    «Lillestrøm stadion 6 7er» -> «Lillestrøm») — presise bane-/underlagsdetaljer er mindre
+    relevante i tittelen enn hvilket sted kampen faktisk spilles på."""
+    bane = bane.strip()
+    return bane.split()[0] if bane else bane
+
+
 def _fotball_lagnavn_normalisert(navn: str) -> str:
     """Som normaliser_tekst, men erstatter skilletegn (f.eks. «/» i «Funnefoss/Vormsund»)
     med mellomrom i stedet for å fjerne dem, slik at det fortsatt matcher klubbens navn med
@@ -420,9 +434,13 @@ def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: da
 
         original_tekst = f"{turnering}: {hjemmelag} – {bortelag}, {bane}.".strip()
 
+        kategori = turnering.split()[0] if turnering else ""
+        sted_kort = _fotball_sted_kort(bane)
+        tittel = f"Fotballkamp {sted_kort} {kategori}".strip() if kategori else f"Fotballkamp {sted_kort}"
+
         arrangementer.append(
             {
-                "tittel": f"{hjemmelag} – {bortelag}",
+                "tittel": tittel,
                 "dato": dag.isoformat(),
                 "klokkeslett": tid or None,
                 "sted": bane,

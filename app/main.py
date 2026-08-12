@@ -12,6 +12,7 @@ from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt, standard_ar
 from app.auth import sjekk_passord
 from app.db import get_session, init_db
 from app.harvest import (
+    NES_KOMMUNE_KALENDER_URL,
     beregn_arrangement_id,
     beregn_periode,
     beregn_signatur,
@@ -321,6 +322,36 @@ def hent_fotballkamper_rute(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
+@app.post("/kilder/hent-nes-kalender")
+def hent_nes_kalender_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    try:
+        rå, _foreslatt_url = hent_fra_kilde(NES_KOMMUNE_KALENDER_URL, forste_dag, siste_dag)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request, session, f"Kunne ikke hente fra Nes kommunes aktivitetskalender: {e}"
+            ),
+        )
+
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = list(eksisterende)
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    for a in rå:
+        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
 def _finn_flerdagsmatch(
     tittel: str, tekst: str, sted: str, dato_str: str, kandidater: list[Arrangement]
 ) -> Arrangement | None:
@@ -527,6 +558,12 @@ def _sorter_med_duplikater_samlet(arrangementer: list[Arrangement]) -> tuple[lis
 def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
     innstilling = _hent_innstilling(session)
     arrangementer = session.exec(select(Arrangement)).all()
+
+    nes_kalender_vert = vertsnavn(NES_KOMMUNE_KALENDER_URL)
+    antall_fra_nes_kalender = sum(
+        1 for a in arrangementer if a.kilde_url and vertsnavn(a.kilde_url) == nes_kalender_vert
+    )
+
     arrangementer, duplikat_ider = _sorter_med_duplikater_samlet(arrangementer)
 
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -534,6 +571,7 @@ def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | 
         "request": request,
         "arrangementer": arrangementer,
         "duplikat_ider": duplikat_ider,
+        "antall_fra_nes_kalender": antall_fra_nes_kalender,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "antall_dager": innstilling.antall_dager,
@@ -681,6 +719,39 @@ def tom_utkast(
 ):
     for a in session.exec(select(Arrangement)).all():
         session.delete(a)
+    session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/slett-gamle")
+def slett_gamle_arrangementer(
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    """Sletter arrangementer som allerede er avsluttet (sluttdato før i dag). Løpende
+    arrangementer (startet før i dag, men ikke avsluttet ennå) beholdes, men får
+    startdatoen flyttet fram til i morgen — samme konvensjon som resten av appen bruker
+    for "kommende" periode."""
+    i_dag = date.today()
+    i_morgen = i_dag + timedelta(days=1)
+    for a in session.exec(select(Arrangement)).all():
+        try:
+            start = date.fromisoformat(a.dato)
+        except ValueError:
+            continue
+        try:
+            slutt = date.fromisoformat(a.til_dato) if a.til_dato else start
+        except ValueError:
+            slutt = start
+
+        if slutt < i_dag:
+            session.delete(a)
+        elif start < i_dag:
+            if i_morgen > slutt:
+                session.delete(a)
+            else:
+                a.dato = i_morgen.isoformat()
+                session.add(a)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
