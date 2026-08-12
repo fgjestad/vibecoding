@@ -13,8 +13,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import httpx
 from anthropic import Anthropic
 
-from app.models import Kilde
-
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
@@ -24,7 +22,7 @@ UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søn
 # Hvam og Oppaker bekreftet via Nes kommunes egen "Municipalities"-liste på ØRU-plattformen.
 NES_STEDER = (
     "Årnes", "Vormsund", "Fenstad", "Auli", "Neskollen", "Udnes", "Skogbygda", "Runni",
-    "Hvam", "Oppaker",
+    "Hvam", "Oppaker", "Rånåsfoss", "Brårud", "Rakeie", "Bjørknes",
 )
 STED_BESKRIVELSE = (
     f"Nes kommune på Romerike i Akershus, Norge (kjente steder: {', '.join(NES_STEDER)}. "
@@ -81,7 +79,7 @@ def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
 
 
 def _hent_fra_prokom_kalender(
-    kilde: Kilde, api_url_mal: str, kalender_sti: str, forste_dag: date, siste_dag: date
+    kilde_url: str, api_url_mal: str, kalender_sti: str, forste_dag: date, siste_dag: date
 ) -> list[dict]:
     """Henter strukturerte arrangementsdata direkte fra Prokom/ØRU-kalenderens eget API, ved
     å gjenbruke API-URL-en widgeten på siden selv sender (kun med egne datoer og en romsligere
@@ -108,7 +106,7 @@ def _hent_fra_prokom_kalender(
         for dag in maned.get("DaysWithEvents") or []:
             hendelser.extend(dag.get("Events") or [])
 
-    parsed = urlparse(kilde.url)
+    parsed = urlparse(kilde_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     kalender_sti = "/" + kalender_sti.strip("/") + "/"
 
@@ -140,7 +138,7 @@ def _hent_fra_prokom_kalender(
             beskrivelse = f"{tittel} – {dato_del}{tid_tekst}, {sted}.".strip()
 
         hendelse_id = hendelse.get("Id")
-        detalj_url = f"{base_url}{kalender_sti}event#{hendelse_id}" if hendelse_id else kilde.url
+        detalj_url = f"{base_url}{kalender_sti}event#{hendelse_id}" if hendelse_id else kilde_url
 
         arrangementer.append(
             {
@@ -186,7 +184,7 @@ def _er_nes_sted(sted: str) -> bool:
 
 
 def _visitgreateroslo_hendelser_for_post(
-    post: dict, kilde: Kilde, forste_dag: date, siste_dag: date
+    post: dict, kilde_url: str, forste_dag: date, siste_dag: date
 ) -> list[dict]:
     """Gjør ett WordPress-"events"-innlegg om til én arrangement-forekomst per faktiske
     åpningsdag innenfor perioden (et innlegg kan dekke flere datoer med ulike klokkeslett,
@@ -204,7 +202,7 @@ def _visitgreateroslo_hendelser_for_post(
     adresse = str(acf.get("address") or "").strip()
     sted_tekst = f"{sted}, {adresse}" if adresse else sted
     original_tekst = f"{tittel} – {sted_tekst}.".strip()
-    kilde_url = str(post.get("link") or "").strip() or kilde.url
+    kilde_url = str(post.get("link") or "").strip() or kilde_url
 
     hendelser = []
     for periode in acf.get("opening_times") or []:
@@ -249,7 +247,7 @@ def _visitgreateroslo_hendelser_for_post(
     return hendelser
 
 
-def _hent_fra_visitgreateroslo(kilde: Kilde, forste_dag: date, siste_dag: date) -> list[dict]:
+def _hent_fra_visitgreateroslo(kilde_url: str, forste_dag: date, siste_dag: date) -> list[dict]:
     """Henter strukturerte arrangementsdata direkte fra Visit Greater Oslo sitt eget
     WordPress REST-API (samme "events"-endepunkt widgeten på nettsiden selv bruker).
 
@@ -278,7 +276,7 @@ def _hent_fra_visitgreateroslo(kilde: Kilde, forste_dag: date, siste_dag: date) 
             break
 
         for post in poster:
-            arrangementer.extend(_visitgreateroslo_hendelser_for_post(post, kilde, forste_dag, siste_dag))
+            arrangementer.extend(_visitgreateroslo_hendelser_for_post(post, kilde_url, forste_dag, siste_dag))
 
         if len(poster) < 100:
             break
@@ -437,13 +435,13 @@ def _hent_side_tekst(url: str) -> tuple[str, str] | None:
     return _html_til_tekst(rå_html), endelig_url
 
 
-def _vertsnavn(url: str) -> str:
+def vertsnavn(url: str) -> str:
     vert = urlparse(url).hostname or ""
     return vert[4:] if vert.startswith("www.") else vert
 
 
 def _samme_domene(url_a: str, url_b: str) -> bool:
-    return bool(_vertsnavn(url_a)) and _vertsnavn(url_a) == _vertsnavn(url_b)
+    return bool(vertsnavn(url_a)) and vertsnavn(url_a) == vertsnavn(url_b)
 
 
 def normaliser_url_for_dedup(url: str) -> str:
@@ -494,13 +492,13 @@ noen relevante arrangementer, svar med et tomt array: []"""
 
 
 def _hent_fra_kilde_via_sidetekst(
-    kilde: Kilde,
+    kilde_url: str,
     sidetekst: str,
     instruks: str,
 ) -> list[dict] | None:
     """Sender allerede hentet sidetekst til Claude for uttrekk. None hvis API-kallet feiler."""
     client = Anthropic()
-    prompt = f"""Under er den rå teksten fra nettsiden {kilde.url}, hentet automatisk. Bruk KUN \
+    prompt = f"""Under er den rå teksten fra nettsiden {kilde_url}, hentet automatisk. Bruk KUN \
 denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står der.
 
 --- START SIDETEKST ---
@@ -524,7 +522,7 @@ denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står
 
 
 def hent_fra_kilde(
-    kilde: Kilde,
+    kilde_url: str,
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
@@ -547,15 +545,15 @@ def hent_fra_kilde(
     verktøyet; da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes
     til False.
     """
-    if _er_visitgreateroslo_kilde(kilde.url):
-        return _hent_fra_visitgreateroslo(kilde, forste_dag, siste_dag), None
+    if _er_visitgreateroslo_kilde(kilde_url):
+        return _hent_fra_visitgreateroslo(kilde_url, forste_dag, siste_dag), None
 
-    rå_resultat = _hent_side_raw(kilde.url)
+    rå_resultat = _hent_side_raw(kilde_url)
     if rå_resultat:
         widget = _finn_prokom_widget(rå_resultat[0])
         if widget:
             api_url_mal, kalender_sti = widget
-            return _hent_fra_prokom_kalender(kilde, api_url_mal, kalender_sti, forste_dag, siste_dag), None
+            return _hent_fra_prokom_kalender(kilde_url, api_url_mal, kalender_sti, forste_dag, siste_dag), None
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], None
@@ -574,28 +572,28 @@ def hent_fra_kilde(
             resultat = (sidetekst, rå_resultat[1])
     if resultat:
         sidetekst, endelig_url = resultat
-        arrangementer = _hent_fra_kilde_via_sidetekst(kilde, sidetekst, instruks)
+        arrangementer = _hent_fra_kilde_via_sidetekst(kilde_url, sidetekst, instruks)
         if arrangementer is not None:
             for a in arrangementer:
                 a["kilde_type"] = "fast_kalender"
-                a["kilde_url"] = kilde.url
+                a["kilde_url"] = kilde_url
                 a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), sidetekst)
             foreslatt_url = None
-            if endelig_url and endelig_url != kilde.url and _samme_domene(endelig_url, kilde.url):
+            if endelig_url and endelig_url != kilde_url and _samme_domene(endelig_url, kilde_url):
                 foreslatt_url = endelig_url
             return arrangementer, foreslatt_url
 
-    return _hent_fra_kilde_via_web_fetch(kilde, instruks)
+    return _hent_fra_kilde_via_web_fetch(kilde_url, instruks)
 
 
-def _hent_fra_kilde_via_web_fetch(kilde: Kilde, instruks: str) -> tuple[list[dict], str | None]:
+def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
     """Reserveløsning: Claude henter siden selv via web_fetch-verktøyet.
 
     Brukes kun når programmatisk henting av siden feiler. Ordrett samsvar kan da ikke
     verifiseres i kode, så alle treff får tekst_bekreftet=False.
     """
     client = Anthropic()
-    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde.url}
+    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde_url}
 
 Hvis den faktiske arrangementsoversikten ligger på en mer presis underside enn URL-en over \
 (f.eks. en egen kalender-side du ble ledet til), skriv dette på en egen linje FØRST i svaret, \
@@ -621,13 +619,13 @@ linjen helt.
     url_treff = re.search(r"FAKTISK_URL:\s*(\S+)", tekst)
     if url_treff:
         kandidat = url_treff.group(1).strip().rstrip(".,)")
-        if kandidat.startswith("http") and kandidat != kilde.url and _samme_domene(kandidat, kilde.url):
+        if kandidat.startswith("http") and kandidat != kilde_url and _samme_domene(kandidat, kilde_url):
             foreslatt_url = kandidat
 
     arrangementer = _parse_json_liste(tekst)
     for a in arrangementer:
         a["kilde_type"] = "fast_kalender"
-        a["kilde_url"] = kilde.url
+        a["kilde_url"] = kilde_url
         a["tekst_bekreftet"] = False
     return arrangementer, foreslatt_url
 

@@ -25,6 +25,7 @@ from app.harvest import (
     normaliser_url_for_dedup,
     standard_instruks,
     tekstlikhet,
+    vertsnavn,
 )
 from app.llm import foreslå_kilder
 from app.models import (
@@ -40,6 +41,7 @@ from app.models import (
 app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["domene"] = vertsnavn
 
 MAKS_SAMTIDIGE_KILDER = 5
 
@@ -534,7 +536,7 @@ def kjor_innhosting(
     if aktive_kilder:
         with ThreadPoolExecutor(max_workers=min(MAKS_SAMTIDIGE_KILDER, len(aktive_kilder))) as executor:
             fremtid_til_kilde = {
-                executor.submit(hent_fra_kilde, kilde, forste_dag, siste_dag, instruks): kilde
+                executor.submit(hent_fra_kilde, kilde.url, forste_dag, siste_dag, instruks): kilde
                 for kilde in aktive_kilder
             }
             for fremtid in as_completed(fremtid_til_kilde):
