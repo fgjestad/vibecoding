@@ -1,12 +1,13 @@
 import base64
 import hashlib
+import html
 import json
 import os
 import re
 import unicodedata
 from datetime import date, timedelta
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import httpx
 from anthropic import Anthropic
@@ -17,31 +18,54 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
 
+# Kjente stedsnavn i Nes kommune — brukes både i instruksen til Claude og til å filtrere
+# strukturerte kilder som dekker et større område enn bare Nes (f.eks. VisitGreaterOslo).
+# Hvam og Oppaker bekreftet via Nes kommunes egen "Municipalities"-liste på ØRU-plattformen.
+NES_STEDER = (
+    "Årnes", "Vormsund", "Fenstad", "Auli", "Neskollen", "Udnes", "Skogbygda", "Runni",
+    "Hvam", "Oppaker",
+)
 STED_BESKRIVELSE = (
-    "Nes kommune på Romerike i Akershus, Norge (kjente steder: Årnes, Vormsund, Fenstad, "
-    "Auli, Neskollen, Udnes, Skogbygda, Runni. IKKE Nes i Hallingdal/Buskerud eller Nesodden.)"
+    f"Nes kommune på Romerike i Akershus, Norge (kjente steder: {', '.join(NES_STEDER)}. "
+    "IKKE Nes i Hallingdal/Buskerud eller Nesodden.)"
 )
 
 MINSTE_SIDETEKST_LENGDE = 500
 
-# Nes kommunes aktivitetskalender (og noen nabokommuner på samme "ØRU"-plattform) er en
-# JavaScript-widget: selve siden inneholder ingen arrangementer i den rå HTML-en — de hentes
-# separat fra dette API-et etter at siden er lastet i en nettleser. Siden vi ikke kan kjøre
-# JavaScript, henter vi fra dette API-et direkte i stedet for å prøve å skrape (eller be
-# Claude prøve å skrape) den tomme siden. Bonus: ingen AI-kall trengs for denne kilden.
-PROKOM_KALENDER_KOMMUNER = {"nes.kommune.no": "Nes"}
-PROKOM_KALENDER_API = "https://sspkalender.prokom.no/api/tidspunkt"
+# Flere kommuner på Øvre Romerike (Nes, Gjerdrum, Nannestad, Hurdal, Eidsvoll m.fl.) bruker
+# samme "Prokom/ØRU"-kalenderwidget ("startCalendar({...})"), som er JavaScript-drevet: selve
+# siden inneholder ingen arrangementer i den rå HTML-en — de hentes separat fra et eget API
+# etter at siden er lastet i en nettleser. Widgeten kan ligge på hvilken som helst side på
+# plattformen (ikke bare en dedikert "aktivitetskalender"-side — f.eks. har et biblioteks
+# egen underside sin egen widget-instans, filtrert til bare bibliotekrelaterte kategorier).
+# I stedet for å hardkode kommune-URL-er leser vi konfigurasjonen widgeten selv bruker rett
+# ut av sidens rå HTML og bruker den direkte. Bonus: ingen AI-kall trengs for denne kilden,
+# og det fungerer automatisk for alle sider/kommuner på plattformen.
+_PROKOM_STARTCALENDAR_RE = re.compile(r"startCalendar\(\s*\{(.*?)\}\s*\)", re.DOTALL)
+_PROKOM_WHERE_RE = re.compile(r"where\s*:\s*'([^']+)'")
+_PROKOM_CALENDARURL_RE = re.compile(r"calendarurl\s*:\s*'([^']+)'")
 PROKOM_BESKRIVELSE_NOKLER = ("beskriv", "description", "ingress", "omtale", "tekst", "info", "innhold")
 
 
-def _er_prokom_kalender(url: str) -> str | None:
-    """Returnerer kommunenavnet (til API-parameteren) hvis URL-en er en kjent Prokom/ØRU-
-    aktivitetskalender, ellers None."""
-    vert = urlparse(url).hostname or ""
-    for kommune_vert, kommune_navn in PROKOM_KALENDER_KOMMUNER.items():
-        if vert.endswith(kommune_vert) and "aktivitetskalender" in url:
-            return kommune_navn
-    return None
+def _finn_prokom_widget(rå_html: str) -> tuple[str, str] | None:
+    """Leter etter en innebygd Prokom/ØRU-kalenderwidget i sidens rå HTML. Returnerer
+    (api_url_mal, kalender_sti) hvis funnet, ellers None.
+
+    api_url_mal er hele API-URL-en widgeten selv sender (inkludert Municipalities/
+    Categories tilpasset akkurat denne widget-instansen) — vi bytter kun ut dato-
+    parametrene før vi kaller den. kalender_sti er stien til kalenderens egen
+    detaljvisning på denne siden (varierer, f.eks. "/aktivitetskalender/" eller
+    "/aktivitetskalender2/" for et bibliotek)."""
+    treff = _PROKOM_STARTCALENDAR_RE.search(rå_html)
+    if not treff:
+        return None
+    konfig = treff.group(1)
+    where_treff = _PROKOM_WHERE_RE.search(konfig)
+    if not where_treff or "prokom.no" not in where_treff.group(1):
+        return None
+    sti_treff = _PROKOM_CALENDARURL_RE.search(konfig)
+    kalender_sti = sti_treff.group(1) if sti_treff else "/aktivitetskalender/"
+    return where_treff.group(1), kalender_sti
 
 
 def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
@@ -56,18 +80,22 @@ def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
 
 
 def _hent_fra_prokom_kalender(
-    kilde: Kilde, kommune_navn: str, forste_dag: date, siste_dag: date
+    kilde: Kilde, api_url_mal: str, kalender_sti: str, forste_dag: date, siste_dag: date
 ) -> list[dict]:
-    """Henter strukturerte arrangementsdata direkte fra Prokom/ØRU-kalenderens eget API.
+    """Henter strukturerte arrangementsdata direkte fra Prokom/ØRU-kalenderens eget API, ved
+    å gjenbruke API-URL-en widgeten på siden selv sender (kun med egne datoer og en romsligere
+    treffgrense) — dermed beholdes akkurat de Municipalities/Categories-filtrene som gjelder
+    for denne konkrete widget-instansen.
 
     Dataene kommer strukturert og direkte fra kildens egen database (ingen AI-omskriving),
     så original_tekst kan trygt merkes tekst_bekreftet=True."""
-    fra_str = forste_dag.strftime("%d.%m.%Y")
-    til_str = siste_dag.strftime("%d.%m.%Y")
-    url = (
-        f"{PROKOM_KALENDER_API}?Categories=0&SearchText=&DateFrom={fra_str}&DateTo={til_str}"
-        f"&Municipalities={kommune_navn}&Kunde=oru&Id=&ItemDate=&WeekDays=&List=&Count=200&Distributor="
-    )
+    deler = urlsplit(api_url_mal)
+    parametre = dict(parse_qsl(deler.query, keep_blank_values=True))
+    parametre["DateFrom"] = forste_dag.strftime("%d.%m.%Y")
+    parametre["DateTo"] = siste_dag.strftime("%d.%m.%Y")
+    parametre["Count"] = "200"
+    url = urlunsplit(deler._replace(query=urlencode(parametre)))
+
     respons = httpx.get(
         url, timeout=20.0, headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"}
     )
@@ -81,6 +109,7 @@ def _hent_fra_prokom_kalender(
 
     parsed = urlparse(kilde.url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
+    kalender_sti = "/" + kalender_sti.strip("/") + "/"
 
     arrangementer = []
     for hendelse in hendelser:
@@ -110,7 +139,7 @@ def _hent_fra_prokom_kalender(
             beskrivelse = f"{tittel} – {dato_del}{tid_tekst}, {sted}.".strip()
 
         hendelse_id = hendelse.get("Id")
-        detalj_url = f"{base_url}/aktivitetskalender/event#{hendelse_id}" if hendelse_id else kilde.url
+        detalj_url = f"{base_url}{kalender_sti}event#{hendelse_id}" if hendelse_id else kilde.url
 
         arrangementer.append(
             {
@@ -126,6 +155,133 @@ def _hent_fra_prokom_kalender(
                 "tekst_bekreftet": True,
             }
         )
+    return arrangementer
+
+
+# Visit Greater Oslo har sin egen kalender for regionen Romerike (som Nes kommune er en del
+# av), bygget på WordPress med et åpent REST-API for arrangementer (funnet ved å inspisere
+# nettverkstrafikken på https://www.visitgreateroslo.com/no/romerike/hva-skjer). API-et
+# dekker et mye større område enn bare Nes kommune, så vi henter alt fra Romerike-kategorien
+# og filtrerer lokalt til kjente Nes-steder (samme liste som brukes i AI-instruksen) — ellers
+# hadde utkastet druknet i arrangementer fra resten av Romerike.
+VISITGREATEROSLO_EVENTS_API = "https://wordpress.visitgreateroslo.com/wp-json/wp/v2/events"
+VISITGREATEROSLO_ROMERIKE_KATEGORI = 17
+_VISITGREATEROSLO_UKEDAG_TIL_INDEKS = {
+    "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
+    "Friday": 4, "Saturday": 5, "Sunday": 6,
+}
+
+
+def _er_visitgreateroslo_kilde(url: str) -> bool:
+    vert = urlparse(url).hostname or ""
+    return vert.endswith("visitgreateroslo.com")
+
+
+def _er_nes_sted(sted: str) -> bool:
+    sted_norm = _normaliser_tekst(sted)
+    if not sted_norm:
+        return False
+    return any(_normaliser_tekst(kjent) == sted_norm for kjent in NES_STEDER)
+
+
+def _visitgreateroslo_hendelser_for_post(
+    post: dict, kilde: Kilde, forste_dag: date, siste_dag: date
+) -> list[dict]:
+    """Gjør ett WordPress-"events"-innlegg om til én arrangement-forekomst per faktiske
+    åpningsdag innenfor perioden (et innlegg kan dekke flere datoer med ulike klokkeslett,
+    f.eks. et marked åpent lørdag og søndag med samme åpningstider)."""
+    acf = post.get("acf") or {}
+    sted = str(acf.get("location") or "").strip()
+    if not _er_nes_sted(sted):
+        return []
+
+    tittel = html.unescape(str((post.get("title") or {}).get("rendered") or "")).strip()
+    if not tittel:
+        return []
+
+    arrangor = str(acf.get("organiser") or "").strip() or None
+    adresse = str(acf.get("address") or "").strip()
+    sted_tekst = f"{sted}, {adresse}" if adresse else sted
+    original_tekst = f"{tittel} – {sted_tekst}.".strip()
+    kilde_url = str(post.get("link") or "").strip() or kilde.url
+
+    hendelser = []
+    for periode in acf.get("opening_times") or []:
+        try:
+            periode_start = date.fromisoformat(str(periode.get("start_date")))
+            periode_slutt = date.fromisoformat(str(periode.get("end_date")))
+        except (ValueError, TypeError):
+            continue
+
+        dag_ved_ukedag = {
+            _VISITGREATEROSLO_UKEDAG_TIL_INDEKS[d["day_name"]]: d
+            for d in (periode.get("days") or [])
+            if d.get("day_name") in _VISITGREATEROSLO_UKEDAG_TIL_INDEKS
+        }
+
+        dag = max(periode_start, forste_dag)
+        slutt = min(periode_slutt, siste_dag)
+        while dag <= slutt:
+            dagsinfo = dag_ved_ukedag.get(dag.weekday())
+            tider = (dagsinfo or {}).get("opening_times") or []
+            if dagsinfo and dagsinfo.get("is_open") and tider:
+                for tid in tider:
+                    klokkeslett = None
+                    åpningstid = str(tid.get("opening_time") or "")
+                    if "T" in åpningstid:
+                        klokkeslett = åpningstid.split("T", 1)[1][:5]
+                    hendelser.append(
+                        {
+                            "tittel": tittel,
+                            "dato": dag.isoformat(),
+                            "klokkeslett": klokkeslett,
+                            "sted": sted_tekst,
+                            "arrangor": arrangor,
+                            "original_tekst": original_tekst,
+                            "geografisk_relevans": "bekreftet",
+                            "kilde_type": "fast_kalender",
+                            "kilde_url": kilde_url,
+                            "tekst_bekreftet": True,
+                        }
+                    )
+            dag += timedelta(days=1)
+    return hendelser
+
+
+def _hent_fra_visitgreateroslo(kilde: Kilde, forste_dag: date, siste_dag: date) -> list[dict]:
+    """Henter strukturerte arrangementsdata direkte fra Visit Greater Oslo sitt eget
+    WordPress REST-API (samme "events"-endepunkt widgeten på nettsiden selv bruker).
+
+    Dataene kommer strukturert direkte fra kildens egen database (ingen AI-omskriving), så
+    original_tekst kan trygt merkes tekst_bekreftet=True."""
+    arrangementer = []
+    side = 1
+    while side <= 20:
+        respons = httpx.get(
+            VISITGREATEROSLO_EVENTS_API,
+            params={
+                "city_category": VISITGREATEROSLO_ROMERIKE_KATEGORI,
+                "lang": "no",
+                "per_page": 100,
+                "page": side,
+            },
+            timeout=20.0,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+        )
+        if respons.status_code == 400:
+            # WordPress svarer 400 når man ber om en side forbi den siste.
+            break
+        respons.raise_for_status()
+        poster = respons.json()
+        if not poster:
+            break
+
+        for post in poster:
+            arrangementer.extend(_visitgreateroslo_hendelser_for_post(post, kilde, forste_dag, siste_dag))
+
+        if len(poster) < 100:
+            break
+        side += 1
     return arrangementer
 
 
@@ -216,8 +372,8 @@ def _html_til_tekst(html: str) -> str:
     return uttrekker.hent_tekst()
 
 
-def _hent_side_tekst(url: str) -> tuple[str, str] | None:
-    """Henter en URL programmatisk. Returnerer (synlig_tekst, endelig_url_etter_omdirigering),
+def _hent_side_raw(url: str) -> tuple[str, str] | None:
+    """Henter en URL programmatisk. Returnerer (rå_html, endelig_url_etter_omdirigering),
     eller None ved feil."""
     try:
         respons = httpx.get(
@@ -234,7 +390,17 @@ def _hent_side_tekst(url: str) -> tuple[str, str] | None:
     if "html" not in content_type and "text" not in content_type:
         return None
 
-    return _html_til_tekst(respons.text), str(respons.url)
+    return respons.text, str(respons.url)
+
+
+def _hent_side_tekst(url: str) -> tuple[str, str] | None:
+    """Henter en URL programmatisk og gjør den om til synlig tekst. Returnerer
+    (synlig_tekst, endelig_url_etter_omdirigering), eller None ved feil."""
+    resultat = _hent_side_raw(url)
+    if not resultat:
+        return None
+    rå_html, endelig_url = resultat
+    return _html_til_tekst(rå_html), endelig_url
 
 
 def _vertsnavn(url: str) -> str:
@@ -335,8 +501,10 @@ def hent_fra_kilde(
     foreslått av Claude) hvis vi fant en, ellers None — brukes til å oppdatere kildelisten
     slik at neste kjøring kan hente direkte uten omveier.
 
-    Kjente Prokom/ØRU-kalender-widgets (f.eks. Nes kommunes aktivitetskalender) hentes
-    direkte fra kildens eget API — se _hent_fra_prokom_kalender.
+    Kjente strukturerte kilder hentes direkte fra sitt eget API, uten AI:
+    - Prokom/ØRU-kalender-widgets (f.eks. Nes kommunes aktivitetskalender, eller et
+      biblioteks egen underside) — se _finn_prokom_widget / _hent_fra_prokom_kalender.
+    - Visit Greater Oslo — se _hent_fra_visitgreateroslo.
 
     Ellers prøver vi først å hente siden programmatisk og la Claude lese av den rå teksten —
     da kan hvert "original_tekst"-utdrag verifiseres kode-messig mot det som faktisk står på
@@ -345,22 +513,31 @@ def hent_fra_kilde(
     verktøyet; da kan vi ikke verifisere ordrett samsvar i kode, så tekst_bekreftet settes
     til False.
     """
-    kommune_navn = _er_prokom_kalender(kilde.url)
-    if kommune_navn:
-        return _hent_fra_prokom_kalender(kilde, kommune_navn, forste_dag, siste_dag), None
+    if _er_visitgreateroslo_kilde(kilde.url):
+        return _hent_fra_visitgreateroslo(kilde, forste_dag, siste_dag), None
+
+    rå_resultat = _hent_side_raw(kilde.url)
+    if rå_resultat:
+        widget = _finn_prokom_widget(rå_resultat[0])
+        if widget:
+            api_url_mal, kalender_sti = widget
+            return _hent_fra_prokom_kalender(kilde, api_url_mal, kalender_sti, forste_dag, siste_dag), None
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], None
 
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
 
-    resultat = _hent_side_tekst(kilde.url)
-    if resultat and len(resultat[0]) < MINSTE_SIDETEKST_LENGDE:
-        # Mistenkelig lite tekst — sannsynligvis en side der innholdet lastes inn med
-        # JavaScript etter at siden er hentet (f.eks. en kalender-widget), så den
-        # programmatiske hentingen har ikke fått med de faktiske arrangementene. Gå rett
-        # til reserveløsningen i stedet for å tolke en nesten tom side som "ingen treff".
-        resultat = None
+    resultat = None
+    if rå_resultat:
+        sidetekst = _html_til_tekst(rå_resultat[0])
+        if len(sidetekst) >= MINSTE_SIDETEKST_LENGDE:
+            # Mindre enn dette er mistenkelig lite tekst — sannsynligvis en side der
+            # innholdet lastes inn med JavaScript etter at siden er hentet (f.eks. en
+            # kalender-widget uten en gjenkjennbar Prokom-signatur), så den programmatiske
+            # hentingen har ikke fått med det faktiske innholdet. Gå rett til
+            # reserveløsningen i stedet for å tolke en nesten tom side som "ingen treff".
+            resultat = (sidetekst, rå_resultat[1])
     if resultat:
         sidetekst, endelig_url = resultat
         arrangementer = _hent_fra_kilde_via_sidetekst(kilde, sidetekst, instruks)
