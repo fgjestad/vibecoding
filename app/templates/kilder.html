@@ -55,27 +55,6 @@
       <button type="submit" class="primær" style="margin-top:0.75rem;">Legg til</button>
     </form>
 
-    <h2>Hent fotballkamper</h2>
-    <p class="undertittel">
-      Henter hjemmekamper for lokale fotballklubber (Funnefoss/Vormsund, Raumnes &amp; Årnes,
-      Fenstad, Haga, Hvam og Skogbygda) fra fotball.no, for perioden
-      {{ forste_dag.strftime("%d.%m.%Y") }} – {{ siste_dag.strftime("%d.%m.%Y") }}
-      (samme periode som Innhøsting). Bare hjemmekamper tas med. Legges til i utkastet på
-      Innhøsting-siden.
-    </p>
-    <form class="skjema-kort" method="post" action="/kilder/hent-fotballkamper" id="fotball-skjema">
-      <button type="submit" class="primær" id="fotball-knapp">
-        Hent fotballkamper
-      </button>
-    </form>
-    <script>
-      document.getElementById("fotball-skjema").addEventListener("submit", function () {
-        var knapp = document.getElementById("fotball-knapp");
-        knapp.disabled = true;
-        knapp.innerHTML = '<span class="spinner"></span> Henter kamper … (kan ta et halvt minutt)';
-      });
-    </script>
-
     <h2>Oppdag nye kilder</h2>
     <p class="undertittel">
       Bruker Claude med nettsøk til å foreslå kandidat-nettsteder for Nes-området.

@@ -54,6 +54,25 @@
       });
     </script>
 
+    <h2>Hent fotballkamper</h2>
+    <p class="undertittel">
+      Henter hjemmekamper for lokale fotballklubber (Funnefoss/Vormsund, Raumnes &amp; Årnes,
+      Fenstad, Haga, Hvam og Skogbygda) fra fotball.no, for perioden over. Bare hjemmekamper
+      tas med. Legges til i utkastet under, i tillegg til det som hentes automatisk.
+    </p>
+    <form class="skjema-kort" method="post" action="/kilder/hent-fotballkamper" id="fotball-skjema">
+      <button type="submit" class="primær" id="fotball-knapp">
+        Hent fotballkamper
+      </button>
+    </form>
+    <script>
+      document.getElementById("fotball-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("fotball-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Henter kamper … (kan ta et halvt minutt)';
+      });
+    </script>
+
     <h2>Last opp skjermdump eller PDF</h2>
     <p class="undertittel">
       For arrangementer som kun finnes på Facebook (last opp skjermdump) eller i papiravisen
