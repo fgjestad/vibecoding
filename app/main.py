@@ -103,17 +103,9 @@ def forside(
     forslag = session.exec(
         select(KildeForslag).where(KildeForslag.status == "ny")
     ).all()
-    innstilling = _hent_innstilling(session)
-    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return templates.TemplateResponse(
         "kilder.html",
-        {
-            "request": request,
-            "kilder": kilder,
-            "forslag": forslag,
-            "forste_dag": forste_dag,
-            "siste_dag": siste_dag,
-        },
+        {"request": request, "kilder": kilder, "forslag": forslag},
     )
 
 
