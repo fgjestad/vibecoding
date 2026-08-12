@@ -47,7 +47,11 @@ def _er_prokom_kalender(url: str) -> str | None:
 def _finn_prokom_beskrivelse(kalenderobjekt: dict) -> str | None:
     for nokkel, verdi in kalenderobjekt.items():
         if isinstance(verdi, str) and verdi.strip() and any(n in nokkel.lower() for n in PROKOM_BESKRIVELSE_NOKLER):
-            return verdi.strip()
+            # Feltet inneholder rik HTML fra kildens CMS (f.eks. <p>, <b>, &aring;), ikke
+            # ren tekst — gjør den om til lesbar tekst på samme måte som for skrapte sider.
+            tekst = _html_til_tekst(verdi.strip())
+            if tekst:
+                return tekst
     return None
 
 
