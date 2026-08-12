@@ -68,6 +68,11 @@
     >
       Klikk her og lim inn (Ctrl+V) et bilde eller en tekst du har kopiert — slipper å lagre en fil først
     </div>
+    <img
+      id="lim-inn-forhandsvisning"
+      alt="Forhåndsvisning av limt inn bilde"
+      style="display: none; max-width: 100%; max-height: 320px; margin-top: 0.75rem; border-radius: 6px; border: 1px solid var(--border);"
+    />
 
     <form
       class="skjema-kort"
@@ -117,6 +122,8 @@
         var filInput = document.getElementById("fil-input");
         var tekstSkjema = document.getElementById("lim-inn-tekst-skjema");
         var tekstInput = document.getElementById("tekst-input");
+        var forhandsvisning = document.getElementById("lim-inn-forhandsvisning");
+        var forhandsvisningUrl = null;
 
         limInnOmrade.addEventListener("paste", function (e) {
           e.preventDefault();
@@ -133,6 +140,13 @@
               limInnOmrade.textContent = 'Bilde limt inn — trykk "Last opp og tolk" under';
               limInnOmrade.style.borderColor = "var(--ok)";
               tekstSkjema.style.display = "none";
+
+              if (forhandsvisningUrl) {
+                URL.revokeObjectURL(forhandsvisningUrl);
+              }
+              forhandsvisningUrl = URL.createObjectURL(blob);
+              forhandsvisning.src = forhandsvisningUrl;
+              forhandsvisning.style.display = "block";
               return;
             }
           }
@@ -144,6 +158,12 @@
             limInnOmrade.textContent = 'Tekst limt inn — se feltet under, trykk "Last opp og tolk"';
             limInnOmrade.style.borderColor = "var(--ok)";
             tekstInput.focus();
+
+            if (forhandsvisningUrl) {
+              URL.revokeObjectURL(forhandsvisningUrl);
+              forhandsvisningUrl = null;
+            }
+            forhandsvisning.style.display = "none";
             return;
           }
 
