@@ -27,6 +27,26 @@
       <button type="submit">Lagre periode</button>
     </form>
 
+    <div class="kort" style="border-color: var(--accent); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div>
+        <strong style="font-size: 1.2rem;">{{ antall_fra_nes_kalender }}</strong>
+        oppføring{{ '' if antall_fra_nes_kalender == 1 else 'er' }} fra
+        <strong>Nes kommunes aktivitetskalender</strong> i utkastet.
+      </div>
+      <form method="post" action="/kilder/hent-nes-kalender" id="nes-kalender-skjema" style="margin: 0;">
+        <button type="submit" class="primær" id="nes-kalender-knapp">
+          Hent fra Nes kommunes aktivitetskalender
+        </button>
+      </form>
+    </div>
+    <script>
+      document.getElementById("nes-kalender-skjema").addEventListener("submit", function () {
+        var knapp = document.getElementById("nes-kalender-knapp");
+        knapp.disabled = true;
+        knapp.innerHTML = '<span class="spinner"></span> Henter …';
+      });
+    </script>
+
     {% if feilmelding %}
       <div class="kort" style="border-color: var(--danger); background: #fbeeec;">
         <strong style="color: var(--danger);">Noe gikk galt:</strong>
@@ -200,13 +220,22 @@
     <div style="display: flex; justify-content: space-between; align-items: baseline;">
       <h2>Utkast ({{ arrangementer|length }})</h2>
       {% if arrangementer %}
-        <form
-          method="post"
-          action="/innhosting/tom"
-          onsubmit="return confirm('Tømme hele utkastet? Dette kan ikke angres.');"
-        >
-          <button type="submit" class="faresone">Tøm utkastet</button>
-        </form>
+        <div style="display: flex; gap: 0.5rem;">
+          <form
+            method="post"
+            action="/innhosting/slett-gamle"
+            onsubmit="return confirm('Slette arrangementer som allerede har skjedd? Løpende arrangementer flyttes til å starte i morgen i stedet for å bli slettet. Dette kan ikke angres.');"
+          >
+            <button type="submit" class="faresone">Slett gamle arrangementer</button>
+          </form>
+          <form
+            method="post"
+            action="/innhosting/tom"
+            onsubmit="return confirm('Tømme hele utkastet? Dette kan ikke angres.');"
+          >
+            <button type="submit" class="faresone">Tøm utkastet</button>
+          </form>
+        </div>
       {% endif %}
     </div>
     {% if not arrangementer %}
