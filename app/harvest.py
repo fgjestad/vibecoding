@@ -30,11 +30,22 @@ STED_BESKRIVELSE = (
     "IKKE Nes i Hallingdal/Buskerud eller Nesodden.)"
 )
 
-# Nes kommunes egen aktivitetskalender — den viktigste enkeltkilden. Kjører på samme
-# Prokom/ØRU-plattform som håndteres generisk av _finn_prokom_widget/_hent_fra_prokom_kalender
-# lenger ned, så den trenger ingen egen hentelogikk — bare en kjent URL å peke hent_fra_kilde
-# direkte på (for en egen "hent akkurat denne kilden nå"-knapp), og noe å telle oppføringer mot.
+# Nes kommunes egen aktivitetskalender — den viktigste enkeltkilden. Siden bruker IKKE
+# lenger den gamle "startCalendar({...})"-widgeten som _finn_prokom_widget leter etter —
+# den ble bygget om til å hente data direkte med et vanlig JS fetch()-kall (funnet ved å
+# lese sidekilden på nytt). API-et er likevel samme Prokom/ØRU-plattform og samme JSON-form
+# som _hent_fra_prokom_kalender allerede håndterer, bare på en annen adresse
+# (sspkalender.prokom.no i stedet for et *.prokom.no funnet via widget-konfigurasjonen).
+# API-URL-en hardkodes derfor direkte, i stedet for å oppdages fra sidens HTML — det har
+# den ekstra fordelen at vi slipper å besøke nes.kommune.no i det hele tatt for selve
+# datahentingen (kommunens egen brannmur har vist seg å blokkere serverens forespørsler dit).
 NES_KOMMUNE_KALENDER_URL = "https://www.nes.kommune.no/aktivitetskalender/"
+NES_KOMMUNE_KALENDER_API = (
+    "https://sspkalender.prokom.no/api/tidspunkt"
+    "?Categories=0&SearchText=&DateFrom=&DateTo=&Municipalities=Nes&Kunde=oru"
+    "&Id=&ItemDate=&WeekDays=&List=&Count=100&Distributor="
+)
+NES_KOMMUNE_KALENDER_STI = "/aktivitetskalender/"
 
 MINSTE_SIDETEKST_LENGDE = 500
 
@@ -790,45 +801,26 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
     enkeltkilden) og med en diagnosemelding som forklarer HVOR i kjeden noe eventuelt gikk
     galt, i stedet for et stille nulltreff.
 
-    Prøver først den direkte, raske Prokom-API-veien (ingen AI, kode-verifisert tekst). Hvis
-    DEN feiler — f.eks. fordi Render-serverens IP er blokkert av kommunens brannmur/WAF, noe
-    som viser seg som en tilkoblingsfeil eller en uventet statuskode — faller den tilbake til
-    samme reserveløsning som den vanlige innhøstingen bruker: Claude henter siden selv med
-    web_fetch-verktøyet, fra en helt annen nettverksrute enn appens egen server. Da kan ikke
+    Kaller NES_KOMMUNE_KALENDER_API (sspkalender.prokom.no) direkte — en delt tredjeparts-
+    tjeneste, IKKE kommunens egen nettside — så vi slipper å besøke nes.kommune.no i det
+    hele tatt for selve datahentingen (kommunens egen brannmur har vist seg å blokkere
+    serverens forespørsler dit). Hvis DEN direkte API-veien likevel feiler, faller vi
+    tilbake til samme reserveløsning som den vanlige innhøstingen bruker: Claude henter
+    siden selv med web_fetch-verktøyet, fra en helt annen nettverksrute. Da kan ikke
     original_tekst kode-verifiseres (tekst_bekreftet=False), men det er bedre enn ingenting.
 
     Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
     direkte_feil = None
     try:
-        respons = httpx.get(
-            NES_KOMMUNE_KALENDER_URL,
-            timeout=20.0,
-            follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+        arrangementer = _hent_fra_prokom_kalender(
+            NES_KOMMUNE_KALENDER_URL, NES_KOMMUNE_KALENDER_API, NES_KOMMUNE_KALENDER_STI, forste_dag, siste_dag
         )
-        if respons.status_code != 200:
-            direkte_feil = f"Siden svarte med statuskode {respons.status_code} (forventet 200) — kan tyde på blokkering."
-        else:
-            widget = _finn_prokom_widget(respons.text)
-            if not widget:
-                direkte_feil = (
-                    f"Fant ikke kalender-widgeten på siden (hentet {len(respons.text)} tegn HTML). "
-                    "Siden kan ha endret seg."
-                )
-            else:
-                api_url_mal, kalender_sti = widget
-                arrangementer = _hent_fra_prokom_kalender(
-                    NES_KOMMUNE_KALENDER_URL, api_url_mal, kalender_sti, forste_dag, siste_dag
-                )
-                if arrangementer:
-                    return arrangementer, ""
-                direkte_feil = (
-                    f"Widgeten ble funnet og spurt, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
-                )
+        if arrangementer:
+            return arrangementer, ""
+        direkte_feil = f"API-et ble spurt direkte, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
     except httpx.HTTPError as e:
         direkte_feil = (
-            f"Klarte ikke å koble til siden direkte (kan skyldes at kommunens brannmur "
-            f"blokkerer serverens IP-adresse): {type(e).__name__}: {e}"
+            f"Klarte ikke å koble til sspkalender.prokom.no direkte: {type(e).__name__}: {e}"
         )
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
