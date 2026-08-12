@@ -16,6 +16,7 @@ from app.harvest import (
     beregn_arrangement_id,
     beregn_periode,
     beregn_signatur,
+    diagnostiser_nes_kalender,
     er_tittel_duplikat,
     hent_fotballkamper,
     hent_fra_bilde,
@@ -332,7 +333,7 @@ def hent_nes_kalender_rute(
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
     try:
-        rå, _foreslatt_url = hent_fra_kilde(NES_KOMMUNE_KALENDER_URL, forste_dag, siste_dag)
+        rå, diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
@@ -349,6 +350,12 @@ def hent_nes_kalender_rute(
     for a in rå:
         _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater)
     session.commit()
+
+    if not rå and diagnose:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, f"Nes kommunes aktivitetskalender: {diagnose}"),
+        )
     return RedirectResponse(url="/innhosting", status_code=303)
 
 

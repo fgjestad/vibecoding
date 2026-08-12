@@ -785,6 +785,34 @@ def hent_fra_kilde(
     return _hent_fra_kilde_via_web_fetch(kilde_url, instruks)
 
 
+def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[dict], str]:
+    """Som hent_fra_kilde, men spesifikt for Nes kommunes aktivitetskalender (den viktigste
+    enkeltkilden) og med en diagnosemelding som forklarer HVOR i kjeden noe eventuelt gikk
+    galt, i stedet for et stille nulltreff — nyttig siden denne kilden hentes direkte fra
+    Prokom-API-et uten AI, så en feil her betyr enten at siden/widgeten har endret seg, eller
+    at det reelt sett ikke er noen oppføringer i perioden.
+
+    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
+    rå_resultat = _hent_side_raw(NES_KOMMUNE_KALENDER_URL)
+    if not rå_resultat:
+        return [], "Klarte ikke å hente siden i det hele tatt (nettverksfeil, eller siden blokkerte forespørselen)."
+
+    widget = _finn_prokom_widget(rå_resultat[0])
+    if not widget:
+        return [], (
+            f"Fant ikke kalender-widgeten på siden (hentet {len(rå_resultat[0])} tegn HTML). "
+            "Siden kan ha endret seg."
+        )
+
+    api_url_mal, kalender_sti = widget
+    arrangementer = _hent_fra_prokom_kalender(
+        NES_KOMMUNE_KALENDER_URL, api_url_mal, kalender_sti, forste_dag, siste_dag
+    )
+    if not arrangementer:
+        return [], f"Widgeten ble funnet og spurt, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
+    return arrangementer, ""
+
+
 def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
     """Reserveløsning: Claude henter siden selv via web_fetch-verktøyet.
 
