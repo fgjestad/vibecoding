@@ -788,15 +788,17 @@ def hent_fra_kilde(
 def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[dict], str]:
     """Som hent_fra_kilde, men spesifikt for Nes kommunes aktivitetskalender (den viktigste
     enkeltkilden) og med en diagnosemelding som forklarer HVOR i kjeden noe eventuelt gikk
-    galt, i stedet for et stille nulltreff — nyttig siden denne kilden hentes direkte fra
-    Prokom-API-et uten AI, så en feil her betyr enten at siden/widgeten har endret seg, eller
-    at det reelt sett ikke er noen oppføringer i perioden.
+    galt, i stedet for et stille nulltreff.
 
-    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess.
+    Prøver først den direkte, raske Prokom-API-veien (ingen AI, kode-verifisert tekst). Hvis
+    DEN feiler — f.eks. fordi Render-serverens IP er blokkert av kommunens brannmur/WAF, noe
+    som viser seg som en tilkoblingsfeil eller en uventet statuskode — faller den tilbake til
+    samme reserveløsning som den vanlige innhøstingen bruker: Claude henter siden selv med
+    web_fetch-verktøyet, fra en helt annen nettverksrute enn appens egen server. Da kan ikke
+    original_tekst kode-verifiseres (tekst_bekreftet=False), men det er bedre enn ingenting.
 
-    Henter siden selv (i stedet for å gjenbruke _hent_side_raw) for å kunne skille konkret
-    mellom en tilkoblingsfeil (DNS/tidsavbrudd) og at siden faktisk svarte, men med en
-    statuskode som tyder på blokkering (f.eks. 403 fra en bot-beskyttelse)."""
+    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
+    direkte_feil = None
     try:
         respons = httpx.get(
             NES_KOMMUNE_KALENDER_URL,
@@ -804,27 +806,39 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
             follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
         )
+        if respons.status_code != 200:
+            direkte_feil = f"Siden svarte med statuskode {respons.status_code} (forventet 200) — kan tyde på blokkering."
+        else:
+            widget = _finn_prokom_widget(respons.text)
+            if not widget:
+                direkte_feil = (
+                    f"Fant ikke kalender-widgeten på siden (hentet {len(respons.text)} tegn HTML). "
+                    "Siden kan ha endret seg."
+                )
+            else:
+                api_url_mal, kalender_sti = widget
+                arrangementer = _hent_fra_prokom_kalender(
+                    NES_KOMMUNE_KALENDER_URL, api_url_mal, kalender_sti, forste_dag, siste_dag
+                )
+                if arrangementer:
+                    return arrangementer, ""
+                direkte_feil = (
+                    f"Widgeten ble funnet og spurt, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
+                )
     except httpx.HTTPError as e:
-        return [], f"Klarte ikke å koble til siden: {type(e).__name__}: {e}"
-
-    if respons.status_code != 200:
-        return [], f"Siden svarte med statuskode {respons.status_code} (forventet 200) — kan tyde på blokkering."
-
-    rå_resultat = (respons.text, str(respons.url))
-    widget = _finn_prokom_widget(rå_resultat[0])
-    if not widget:
-        return [], (
-            f"Fant ikke kalender-widgeten på siden (hentet {len(rå_resultat[0])} tegn HTML). "
-            "Siden kan ha endret seg."
+        direkte_feil = (
+            f"Klarte ikke å koble til siden direkte (kan skyldes at kommunens brannmur "
+            f"blokkerer serverens IP-adresse): {type(e).__name__}: {e}"
         )
 
-    api_url_mal, kalender_sti = widget
-    arrangementer = _hent_fra_prokom_kalender(
-        NES_KOMMUNE_KALENDER_URL, api_url_mal, kalender_sti, forste_dag, siste_dag
-    )
-    if not arrangementer:
-        return [], f"Widgeten ble funnet og spurt, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
-    return arrangementer, ""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return [], direkte_feil or "Ukjent feil."
+
+    instruks = standard_instruks(forste_dag, siste_dag)
+    arrangementer, _foreslatt_url = _hent_fra_kilde_via_web_fetch(NES_KOMMUNE_KALENDER_URL, instruks)
+    if arrangementer:
+        return arrangementer, ""
+    return [], f"{direkte_feil} Reserveløsningen (Claude henter siden selv) fant heller ingenting."
 
 
 def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
