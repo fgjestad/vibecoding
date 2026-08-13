@@ -8,6 +8,20 @@
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
+  <script>
+    // Uten disse ville en feilet/tidsavbrutt htmx-forespørsel (f.eks. "Undersøk kilde" som
+    // tar for lang tid mot en treg eller blokkerende kilde) se ut som at ingenting skjedde —
+    // htmx bytter kun ut siden ved 2xx-svar, og viser ellers ingen feilmelding av seg selv.
+    document.body.addEventListener("htmx:responseError", function (evt) {
+      alert("Noe gikk galt (feilkode " + evt.detail.xhr.status + "). Prøv igjen, eller last siden på nytt.");
+    });
+    document.body.addEventListener("htmx:sendError", function () {
+      alert("Fikk ikke kontakt med serveren. Sjekk internettforbindelsen og prøv igjen.");
+    });
+    document.body.addEventListener("htmx:timeout", function () {
+      alert("Forespørselen tok for lang tid og ble avbrutt. Kilden kan være treg eller blokkere undersøkelsen — prøv igjen senere.");
+    });
+  </script>
   <main>
     <nav class="meny">
       <a href="/" class="aktiv-lenke">Kildeliste</a> · <a href="/innhosting">Innhøsting</a> ·

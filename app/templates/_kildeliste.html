@@ -57,7 +57,12 @@
           </form>
         </details>
         {% if not (k.url | dedikert) %}
-          <form hx-post="/kilder/{{ k.id }}/undersok" hx-target="#kilde-liste" hx-swap="outerHTML">
+          <form
+            hx-post="/kilder/{{ k.id }}/undersok"
+            hx-target="#kilde-liste"
+            hx-swap="outerHTML"
+            hx-request='{"timeout": 110000}'
+          >
             <button type="submit">
               Undersøk kilde
               <span class="spinner spinner-dark htmx-indicator"></span>
