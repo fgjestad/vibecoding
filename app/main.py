@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,6 +63,43 @@ def oslo_tid(verdi: datetime, format: str = "%d.%m.%Y kl. %H:%M") -> str:
     return verdi.astimezone(OSLO_TZ).strftime(format)
 
 
+def _formater_dato_liste(datoer: list[str]) -> str:
+    """Formaterer en sortert liste med ISO-datoer kompakt: slår sammen dag-for-dag-
+    sammenhengende strekk til "YYYY-MM-DD – YYYY-MM-DD", og skiller ikke-sammenhengende strekk
+    med komma — i stedet for én fra-til-periode som ville sett ut som at arrangementet skjer
+    hver eneste dag i hele spennet, selv om det egentlig f.eks. bare er i helgene."""
+    if not datoer:
+        return ""
+    parsed = [date.fromisoformat(d) for d in datoer]
+    grupper = [[parsed[0]]]
+    for d in parsed[1:]:
+        if d == grupper[-1][-1] + timedelta(days=1):
+            grupper[-1].append(d)
+        else:
+            grupper.append([d])
+    return ", ".join(
+        gruppe[0].isoformat() if len(gruppe) == 1 else f"{gruppe[0].isoformat()} – {gruppe[-1].isoformat()}"
+        for gruppe in grupper
+    )
+
+
+def datoperiode_tekst(a: Arrangement) -> str:
+    """Viser datoen/datoene et arrangement skjer på — se flere_datoer på Arrangement-modellen
+    og _finn_gjentakende_arrangementer for hvordan denne bygges opp. Faller tilbake til det
+    gamle enkle dato/til_dato-parret for rader uten flere_datoer (f.eks. data fra før denne
+    funksjonen fantes)."""
+    if a.flere_datoer:
+        try:
+            datoer = json.loads(a.flere_datoer)
+        except (json.JSONDecodeError, TypeError):
+            datoer = None
+        if datoer:
+            return _formater_dato_liste(sorted(datoer))
+    if a.til_dato:
+        return f"{a.dato} – {a.til_dato}"
+    return a.dato
+
+
 app = FastAPI(title="Raumnes kalendergenerator")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
@@ -69,6 +107,7 @@ templates.env.filters["domene"] = vertsnavn
 templates.env.filters["dedikert"] = er_dedikert_kilde
 templates.env.tests["dedikert"] = er_dedikert_kilde
 templates.env.filters["oslo_tid"] = oslo_tid
+templates.env.filters["datoperiode"] = datoperiode_tekst
 
 MAKS_SAMTIDIGE_KILDER = 5
 
@@ -480,33 +519,26 @@ def hent_nes_kalender_rute(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
-def _finn_flerdagsmatcher(
+def _finn_gjentakende_arrangementer(
     tittel: str, tekst: str, sted: str, dato_str: str, kandidater: list[Arrangement]
 ) -> list[Arrangement]:
-    """Finner ALLE eksisterende arrangementer som denne datoen sannsynligvis er en direkte
-    fortsettelse av — samme sted og nesten ordrett lik tittel/tekst, og datoen er nøyaktig én
-    dag før startdatoen eller én dag etter sluttdatoen til det eksisterende. Fanger opp at
-    enkelte kilder oppgir et flerdagers arrangement (f.eks. en utstilling) som separate
-    endags-rader, én per dato, i stedet for én rad med en dato-periode.
+    """Finner ALLE eksisterende arrangementer som er samme arrangement som dette, bare på en
+    annen dato — samme sted og nesten ordrett lik tittel/tekst. IKKE noe krav om at datoene
+    henger sammen dag for dag: et arrangement som går f.eks. bare i helgene (lørdag+søndag,
+    med hull på hverdager) eller bare på hverdager skal fortsatt samles til én oppføring, ikke
+    vises som mange nesten identiske, forvirrende rader i utkastet.
 
-    Returnerer en LISTE (ikke bare det første treffet): datoene for et flerdagers arrangement
-    kommer ikke alltid inn i kronologisk rekkefølge (ulike kilder, eller samme kilde hentet på
-    nytt i flere runder) — en enkelt ny dato kan derfor bygge bro mellom to allerede lagrede,
-    ikke-tilstøtende deler av samme arrangement (f.eks. dag 1 og dag 3 lagret hver for seg fra
-    før, så dag 2 kommer og knytter dem sammen). Kalleren slår sammen alle treffene til én rad.
+    (Eksakt samme dato som en kandidat hopper vi over her — det er en duplikatsjekk mellom
+    ulike KILDER samme dag, se i stedet er_tittel_duplikat/duplikat_gruppe for det tilfellet.)
 
-    Kun eksakt dags-tilstøtende datoer slås sammen (aldri med hull) — det skiller trygt en
-    faktisk sammenhengende periode fra f.eks. et ukentlig gjentagende arrangement med samme
-    tittel, som ikke skal vises som én lang periode."""
-    ny_dato = date.fromisoformat(dato_str)
+    Returnerer en LISTE (ikke bare det første treffet): en enkelt ny dato kan matche flere
+    allerede lagrede forekomster på én gang. Kalleren i _lagre_arrangement slår sammen alle
+    treffene og den nye datoen til én rad, med den fullstendige datolisten lagret i
+    flere_datoer (se der) — IKKE en enkel fra-til-periode, siden det ville sett ut som at
+    arrangementet skjer hver eneste dag i hele spennet."""
     treff = []
     for eksisterende in kandidater:
-        try:
-            start = date.fromisoformat(eksisterende.dato)
-            slutt = date.fromisoformat(eksisterende.til_dato or eksisterende.dato)
-        except ValueError:
-            continue
-        if ny_dato not in (start - timedelta(days=1), slutt + timedelta(days=1)):
+        if eksisterende.dato == dato_str:
             continue
         if normaliser_tekst(sted) != normaliser_tekst(eksisterende.sted):
             continue
@@ -540,13 +572,14 @@ def _lagre_arrangement(
     ikke_duplikat_par: set[frozenset[str]],
 ) -> bool:
     """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret
-    (eller slått sammen inn i et eksisterende flerdagers arrangement).
+    (eller slått sammen inn i et eksisterende gjentakende arrangement).
 
     Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før.
 
-    Hvis dette tydelig er samme arrangement som et allerede lagret, bare på nabodatoen (se
-    _finn_flerdagsmatcher), utvides det eksisterendes dato-periode i stedet for å opprette en
-    ny rad — slik unngås at et flerdagers arrangement vises som mange separate endags-rader.
+    Hvis dette tydelig er samme arrangement som et allerede lagret, bare på en annen dato (se
+    _finn_gjentakende_arrangementer), utvides det eksisterendes flere_datoer i stedet for å
+    opprette en ny rad — slik unngås at et arrangement som gjentas flere ganger (sammenhengende
+    eller ikke, f.eks. bare i helgene) vises som mange separate, forvirrende endags-rader.
 
     Ellers gjelder vanlig duplikatsjekk: sannsynlige duplikater (fanget opp av
     er_tittel_duplikat — fuzzy tittel-sammenligning mot alt annet lagret på samme dato, se
@@ -571,23 +604,32 @@ def _lagre_arrangement(
         return False
     sett_ider.add(arrangement_id)
 
-    flerdagsmatcher = _finn_flerdagsmatcher(tittel, original_tekst, sted, dato_str, flerdags_kandidater)
-    if flerdagsmatcher:
-        # Slå sammen den nye datoen og ALLE treffene til én sammenhengende periode — ikke bare
-        # utvid ett enkelt treff. Datoene kan komme i vilkårlig rekkefølge (se
-        # _finn_flerdagsmatcher), så vi tar min/maks over alt i stedet for å anta at "det ene
-        # treffet" allerede dekker hele den riktige perioden.
-        alle_datoer = [dato_str]
-        for annen in flerdagsmatcher:
-            alle_datoer.append(annen.dato)
-            alle_datoer.append(annen.til_dato or annen.dato)
+    gjentakende = _finn_gjentakende_arrangementer(tittel, original_tekst, sted, dato_str, flerdags_kandidater)
+    if gjentakende:
+        # Slå sammen den nye datoen og ALLE treffene til én rad, med den FULLSTENDIGE lista
+        # over datoer bevart i flere_datoer — ikke bare min/maks som en fra-til-periode, siden
+        # det ville sett ut som at arrangementet skjer hver eneste dag i hele spennet selv om
+        # det egentlig bare er f.eks. helger. dato/til_dato settes likevel til tidligste/
+        # seneste, brukt til filtrering og sortering.
+        alle_datoer: set[str] = {dato_str}
+        for annen in gjentakende:
+            if annen.flere_datoer:
+                try:
+                    alle_datoer.update(json.loads(annen.flere_datoer))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            alle_datoer.add(annen.dato)
+            if annen.til_dato:
+                alle_datoer.add(annen.til_dato)
+        sorterte_datoer = sorted(alle_datoer)
 
-        hoved = flerdagsmatcher[0]
-        hoved.dato = min(alle_datoer)
-        hoved.til_dato = max(alle_datoer)
+        hoved = gjentakende[0]
+        hoved.dato = sorterte_datoer[0]
+        hoved.til_dato = sorterte_datoer[-1]
+        hoved.flere_datoer = json.dumps(sorterte_datoer)
         session.add(hoved)
 
-        for annen in flerdagsmatcher[1:]:
+        for annen in gjentakende[1:]:
             if annen in flerdags_kandidater:
                 flerdags_kandidater.remove(annen)
             samme_dato_annen = hittil_pr_dato.get(annen.dato)

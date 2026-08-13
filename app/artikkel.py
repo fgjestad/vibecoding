@@ -110,6 +110,7 @@ def generer_hel_artikkel(
             "tittel": a.tittel,
             "dato": a.dato,
             "til_dato": a.til_dato,
+            "flere_datoer": json.loads(a.flere_datoer) if a.flere_datoer else None,
             "klokkeslett": a.klokkeslett,
             "sted": a.sted,
             "arrangor": a.arrangor,
@@ -123,7 +124,13 @@ def generer_hel_artikkel(
 Akershus. Under er en liste med kommende arrangementer i kronologisk rekkefølge (som JSON), \
 hver med en id og tekst hentet fra arrangørens egen nettside. "til_dato" er kun satt for \
 flerdagers arrangementer (f.eks. en utstilling) — betyr at det varer fra "dato" til og med \
-"til_dato"; fraser dette naturlig i teksten (f.eks. "fra 22. til 26. august").
+"til_dato"; fraser dette naturlig i teksten (f.eks. "fra 22. til 26. august"). "flere_datoer" \
+er satt i stedet for "til_dato" når arrangementet gjentas på bestemte datoer som IKKE \
+nødvendigvis henger sammen dag for dag (f.eks. bare i helgene, eller bare på hverdager) — \
+oppsummer da datoene naturlig ut fra mønsteret du ser (f.eks. "hver lørdag og søndag fra 15. \
+til 30. august"), eller list dem opp hvis det ikke er noe tydelig mønster. IKKE fraser dette \
+som én sammenhengende periode ("fra 15. til 30. august") — det ville gitt inntrykk av at det \
+skjer hver eneste dag, når det egentlig bare er på de oppgitte datoene.
 
 ARRANGEMENTER (i rekkefølgen artikkelen skal ha):
 {json.dumps(grunnlag, ensure_ascii=False, indent=2)}
@@ -252,6 +259,7 @@ def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | N
         "tittel": a.tittel,
         "dato": a.dato,
         "til_dato": a.til_dato,
+        "flere_datoer": json.loads(a.flere_datoer) if a.flere_datoer else None,
         "klokkeslett": a.klokkeslett,
         "sted": a.sted,
         "arrangor": a.arrangor,
@@ -261,7 +269,10 @@ def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | N
     prompt = f"""Du er journalist i lokalavisen Raumnes. Skriv ETT avsnitt (til en samleartikkel \
 om kommende arrangementer) om dette arrangementet. "til_dato" er kun satt for flerdagers \
 arrangementer — betyr at det varer fra "dato" til og med "til_dato"; fraser dette naturlig \
-i teksten (f.eks. "fra 22. til 26. august").
+i teksten (f.eks. "fra 22. til 26. august"). "flere_datoer" er satt i stedet for "til_dato" \
+når arrangementet gjentas på bestemte datoer som IKKE nødvendigvis henger sammen dag for dag \
+(f.eks. bare i helgene) — oppsummer da naturlig ut fra mønsteret (f.eks. "hver lørdag og \
+søndag fra 15. til 30. august") i stedet for å fremstille det som én sammenhengende periode.
 
 {json.dumps(grunnlag, ensure_ascii=False, indent=2)}
 

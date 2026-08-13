@@ -47,6 +47,14 @@ class Arrangement(SQLModel, table=True):
     til_dato: Optional[str] = Field(
         default=None, description="Sluttdato (YYYY-MM-DD) hvis flerdagers, ellers None"
     )
+    flere_datoer: Optional[str] = Field(
+        default=None,
+        description="JSON-liste med ALLE datoer (YYYY-MM-DD, sortert) et gjentakende "
+        "arrangement på samme sted skjer på, satt når disse ikke nødvendigvis er "
+        "sammenhengende dag for dag (f.eks. kun i helgene). dato/til_dato er da satt til "
+        "hhv. tidligste og seneste av disse, for filtrering/sortering — selve visningen bruker "
+        "denne lista i stedet, slik at det ikke ser ut som én sammenhengende periode.",
+    )
     klokkeslett: Optional[str] = None
     sted: str
     arrangor: Optional[str] = None

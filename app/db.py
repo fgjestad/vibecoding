@@ -32,6 +32,8 @@ def _migrer_arrangement_tabell() -> None:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN duplikat_gruppe TEXT"))
         if "er_sammenslatt" not in kolonner:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN er_sammenslatt BOOLEAN NOT NULL DEFAULT 0"))
+        if "flere_datoer" not in kolonner:
+            conn.execute(text("ALTER TABLE arrangement ADD COLUMN flere_datoer TEXT"))
 
 
 def _migrer_kilde_tabell() -> None:
