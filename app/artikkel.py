@@ -12,6 +12,34 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 MINSTE_KATEGORI_STORRELSE = 3
 
+# Brukes med output_config.format i generer_hel_artikkel for å garantere at Claude sitt svar
+# er syntaktisk gyldig JSON i nøyaktig denne formen — API-en validerer og håndhever formen
+# server-side, i stedet for at koden må lete etter et JSON-objekt i fritekst og håpe at
+# formatet stemmer (se historikk: dette feilet i praksis med en "Expecting ',' delimiter"-feil
+# når svaret inneholdt et syntaksbrudd Claude selv innførte midt i en tekststreng).
+_ARTIKKEL_SKJEMA = {
+    "type": "object",
+    "properties": {
+        "tittel": {"type": "string"},
+        "ingress": {"type": "string"},
+        "avsnitt": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "arrangement_id": {"type": "integer"},
+                    "kategori": {"type": "string"},
+                    "tekst": {"type": "string"},
+                },
+                "required": ["arrangement_id", "kategori", "tekst"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["tittel", "ingress", "avsnitt"],
+    "additionalProperties": False,
+}
+
 
 def standard_artikkel_instruks() -> str:
     """Stilinstruksen som brukes for hvert avsnitt i artikkelen.
@@ -168,15 +196,15 @@ av de andre kategoriene du har valgt.
 
 For hvert avsnitt gjelder:
 {instruks}
-
-Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
-{{"tittel": "...", "ingress": "...", "avsnitt": [{{"arrangement_id": 1, "kategori": "...", "tekst": "..."}}]}}
 """
     try:
         response = client.messages.create(
             model=MODEL,
             max_tokens=8192,
-            output_config={"effort": "medium"},
+            output_config={
+                "effort": "medium",
+                "format": {"type": "json_schema", "schema": _ARTIKKEL_SKJEMA},
+            },
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as e:
@@ -186,25 +214,30 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
             "Anthropic, eller at ANTHROPIC_API_KEY mangler gyldig kreditt/tilgang."
         )
 
+    if response.stop_reason == "refusal":
+        return None, (
+            "Claude avslo å generere artikkelen (av sikkerhetsårsaker). Prøv med en annen "
+            "eller mindre uvanlig formulert stilinstruks."
+        )
+    if response.stop_reason == "max_tokens":
+        return None, (
+            "Svaret ble kuttet av fordi det ble for langt til å fullføres innenfor grensen. "
+            "Prøv med færre valgte arrangementer, eller del opp perioden i flere kortere "
+            "innhøstinger."
+        )
+
     tekst = "".join(b.text for b in response.content if b.type == "text")
-    match = re.search(r"\{.*\}", tekst, re.DOTALL)
-    if not match:
+    if not tekst.strip():
+        return None, "Claude svarte, men uten noe tekstinnhold. Prøv igjen."
+    try:
+        data = json.loads(tekst)
+    except json.JSONDecodeError as e:
+        # output_config.format garanterer normalt et syntaktisk gyldig svar i denne formen —
+        # havner vi likevel her er det mest sannsynlig en midlertidig API-feil.
         utdrag = tekst.strip()[:300]
         return None, (
-            "Claude svarte, men svaret inneholdt ikke noe gjenkjennbart JSON-objekt. "
-            f"Svar (utdrag): {utdrag!r}. Prøv igjen, eller prøv med en kortere/enklere "
-            "stilinstruks — et svært langt eller uvanlig formulert instruks-felt kan noen "
-            "ganger få Claude til å svare med forklarende tekst i stedet for bare JSON."
-        )
-    try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        utdrag = match.group(0)[:300]
-        return None, (
-            f"Claude svarte med noe som skulle være JSON, men det var ikke gyldig ({e}). "
-            f"Utdrag: {utdrag!r}. Dette skjer typisk hvis svaret ble kuttet av fordi det ble "
-            "for langt (prøv med færre valgte arrangementer, eller del opp i flere kortere "
-            "perioder) — prøv igjen først, det er ofte forbigående."
+            f"Claude sitt svar kunne ikke tolkes som JSON ({e}), til tross for at svaret er "
+            f"strukturert av API-en. Utdrag: {utdrag!r}. Dette er uvanlig — prøv igjen."
         )
     if not isinstance(data, dict):
         return None, f"Claude svarte med gyldig JSON, men ikke et objekt (fikk {type(data).__name__}). Prøv igjen."
