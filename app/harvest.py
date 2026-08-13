@@ -935,6 +935,49 @@ linjen helt.
     return arrangementer, foreslatt_url
 
 
+def diagnostiser_kilde(kilde_url: str) -> str:
+    """Bruker Claude med web_fetch-verktøyet til å undersøke en kilde som ikke fungerer godt
+    nok via de vanlige hente-veiene, og rapporterer tilbake hva den fant — f.eks. om siden
+    bruker et gjenkjennbart mønster (Prokom-widget, WordPress REST-API, iCal/RSS-feed, et
+    eget JS fetch()-kall som for Nes kommunes kalender) og en konkret API-URL. Tanken er å
+    automatisere selve etterforskningsjobben (slik den ble gjort manuelt for Nes kommune og
+    Visit Greater Oslo), slik at det raskt kan bygges en dedikert henting for kilden basert
+    på rapporten — se NES_KOMMUNE_KALENDER_API / VISITGREATEROSLO_EVENTS_API for eksempler.
+
+    Undersøker og rapporterer bare — endrer eller lagrer ingenting selv."""
+    client = Anthropic()
+    prompt = f"""Du skal undersøke denne nettsiden for et automatisk innhøstingssystem for \
+lokale arrangementer, som en lokalavis bruker: {kilde_url}
+
+Gå til siden med web_fetch-verktøyet og se etter:
+1. Bruker siden et gjenkjennbart mønster for å hente arrangementsdata? Se spesielt etter:
+   - Et JavaScript fetch()- eller XHR-kall mot et eget API (se etter "fetch(", "axios", \
+eller en synlig JSON-URL i <script>-tagger)
+   - En Prokom/ØRU-kalenderwidget ("startCalendar(" eller lignende)
+   - Et WordPress REST-API (wp-json)
+   - En iCal-feed (.ics) eller RSS-feed
+   - Andre strukturerte datakilder
+2. Hvis du finner et slikt API: hva er den fullstendige URL-en, inkludert alle parametre?
+3. Fikk du i det hele tatt tilgang til siden, eller ble du blokkert/omdirigert/avvist?
+
+Svar med en kort, konkret rapport (maks 10 linjer) beregnet på en utvikler som skal vurdere \
+om det er verdt å bygge en dedikert, direkte henting for denne kilden. Vær presis om URL-er \
+og mønstre du faktisk fant — ikke gjett eller anta noe du ikke har verifisert."""
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+            output_config={"effort": "medium"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        return f"Kunne ikke undersøke kilden: {type(e).__name__}: {e}"
+
+    tekst = "".join(b.text for b in response.content if b.type == "text").strip()
+    return tekst or "Fikk ikke noe svar fra undersøkelsen."
+
+
 def hent_mer_info(
     kilde_url: str | None,
     tittel: str,

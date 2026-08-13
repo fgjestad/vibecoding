@@ -1,0 +1,225 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f7f5;
+  --card: #ffffff;
+  --border: #e2e0da;
+  --text: #23221f;
+  --muted: #6b6a65;
+  --accent: #8a4b2a;
+  --accent-soft: #f1e4da;
+  --danger: #a13a2f;
+  --ok: #2f6b3a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 2rem 1rem 4rem;
+}
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.undertittel {
+  color: var(--muted);
+  margin-top: 0;
+  margin-bottom: 2rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin-top: 2.5rem;
+}
+
+.kort {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.kort.inaktiv {
+  opacity: 0.55;
+}
+
+.kilde-rad {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.kilde-info strong {
+  font-size: 1.02rem;
+}
+
+.kilde-info a {
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.handlinger {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+button, input[type="submit"] {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+button.primær {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.faresone {
+  color: var(--danger);
+}
+
+button.suksess {
+  color: var(--ok);
+}
+
+form.inline {
+  display: inline;
+}
+
+.skjema-kort {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.skjema-kort label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+.skjema-kort input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  margin-top: 0.2rem;
+}
+
+.skjema-kort .rad {
+  display: flex;
+  gap: 1rem;
+}
+
+.skjema-kort .rad > div {
+  flex: 1;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-left: 0.4rem;
+}
+
+.tom {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.meny {
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.meny a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.meny a.aktiv-lenke {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kort.utelatt {
+  opacity: 0.55;
+}
+
+.tag-advarsel {
+  background: #f0d9d9;
+  color: var(--danger);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin-top: 1.5rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spinn 0.7s linear infinite;
+  vertical-align: -0.15em;
+  margin-right: 0.4em;
+}
+
+@keyframes spinn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner-dark {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: var(--accent);
+}
+
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline-block;
+}
+
+button:disabled {
+  opacity: 0.8;
+  cursor: wait;
+}

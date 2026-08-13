@@ -9,13 +9,14 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt, standard_artikkel_instruks
-from app.auth import sjekk_passord
+from app.auth import sjekk_admin, sjekk_passord
 from app.db import get_session, init_db
 from app.harvest import (
     NES_KOMMUNE_KALENDER_URL,
     beregn_arrangement_id,
     beregn_periode,
     beregn_signatur,
+    diagnostiser_kilde,
     diagnostiser_nes_kalender,
     er_dedikert_kilde,
     er_tittel_duplikat,
@@ -101,8 +102,12 @@ def _forslagliste_respons(request: Request, session: Session):
 def forside(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
+    if rolle != "admin":
+        # Journalist-brukere har ikke tilgang til kildelisten — send dem til startsiden
+        # de faktisk skal bruke, i stedet for en forvirrende feilmelding.
+        return RedirectResponse(url="/innhosting", status_code=303)
     kilder = session.exec(select(Kilde)).all()
     kilder = sorted(kilder, key=lambda k: k.samlet_sortering, reverse=True)
     forslag = session.exec(
@@ -120,7 +125,7 @@ def opprett_kilde(
     url: str = Form(...),
     manuell_prioritet: int = Form(0),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     kilde = Kilde(navn=navn.strip(), url=url.strip(), manuell_prioritet=manuell_prioritet)
     session.add(kilde)
@@ -135,7 +140,7 @@ def rediger_kilde(
     navn: str = Form(...),
     url: str = Form(...),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     kilde = session.get(Kilde, kilde_id)
     if kilde:
@@ -152,7 +157,7 @@ def sett_prioritet(
     request: Request,
     manuell_prioritet: int = Form(0),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     kilde = session.get(Kilde, kilde_id)
     if kilde:
@@ -167,7 +172,7 @@ def aktiver_kilde(
     kilde_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     kilde = session.get(Kilde, kilde_id)
     if kilde:
@@ -182,7 +187,7 @@ def deaktiver_kilde(
     kilde_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     kilde = session.get(Kilde, kilde_id)
     if kilde and not er_dedikert_kilde(kilde.url):
@@ -192,11 +197,33 @@ def deaktiver_kilde(
     return _kildeliste_respons(request, session)
 
 
+@app.post("/kilder/{kilde_id}/undersok")
+def undersok_kilde(
+    kilde_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    """Ber Claude undersøke kilden (via web_fetch) og rapportere om den bruker et
+    gjenkjennbart mønster (Prokom-widget, WordPress REST-API, iCal/RSS, egen JS fetch()
+    osv.) — samme etterforskningsjobb som ble gjort manuelt for Nes kommune og Visit
+    Greater Oslo, automatisert. Se harvest.diagnostiser_kilde."""
+    kilde = session.get(Kilde, kilde_id)
+    if not kilde:
+        return _kildeliste_respons(request, session)
+    try:
+        rapport = diagnostiser_kilde(kilde.url)
+    except Exception as e:
+        rapport = f"Kunne ikke undersøke kilden: {e}"
+    melding = f"Undersøkelse av «{kilde.navn}»:\n\n{rapport}"
+    return _kildeliste_respons(request, session, melding)
+
+
 @app.post("/kilder/fjern-duplikater")
 def fjern_duplikater(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     """Fjerner kilder med samme URL (etter normalisering), og beholder den med høyest prioritet."""
     kilder = session.exec(select(Kilde)).all()
@@ -223,7 +250,7 @@ def fjern_duplikater(
 def oppdag_nye_kilder(
     ekstra_instruks: str = Form(""),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     eksisterende_kilder = session.exec(select(Kilde)).all()
     eksisterende_urler = {k.url for k in eksisterende_kilder}
@@ -261,7 +288,7 @@ def godkjenn_forslag(
     forslag_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     forslag = session.get(KildeForslag, forslag_id)
     if forslag and forslag.status == "ny":
@@ -277,7 +304,7 @@ def avvis_forslag(
     forslag_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    _: str = Depends(sjekk_admin),
 ):
     forslag = session.get(KildeForslag, forslag_id)
     if forslag:
@@ -291,7 +318,7 @@ def avvis_forslag(
 def hent_fotballkamper_rute(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -301,7 +328,7 @@ def hent_fotballkamper_rute(
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
-            _innhosting_kontekst(request, session, f"Kunne ikke hente fotballkamper: {e}"),
+            _innhosting_kontekst(request, session, f"Kunne ikke hente fotballkamper: {e}", rolle),
         )
 
     eksisterende = session.exec(select(Arrangement)).all()
@@ -321,6 +348,7 @@ def hent_fotballkamper_rute(
                 session,
                 f"{antall_feilet} oppslag mot fotball.no feilet og ble hoppet over. "
                 "Resten ble lagt til i utkastet.",
+                rolle,
             ),
         )
     return RedirectResponse(url="/innhosting", status_code=303)
@@ -330,7 +358,7 @@ def hent_fotballkamper_rute(
 def hent_nes_kalender_rute(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -341,7 +369,7 @@ def hent_nes_kalender_rute(
         return templates.TemplateResponse(
             "innhosting.html",
             _innhosting_kontekst(
-                request, session, f"Kunne ikke hente fra Nes kommunes aktivitetskalender: {e}"
+                request, session, f"Kunne ikke hente fra Nes kommunes aktivitetskalender: {e}", rolle
             ),
         )
 
@@ -357,7 +385,7 @@ def hent_nes_kalender_rute(
     if not rå and diagnose:
         return templates.TemplateResponse(
             "innhosting.html",
-            _innhosting_kontekst(request, session, f"Nes kommunes aktivitetskalender: {diagnose}"),
+            _innhosting_kontekst(request, session, f"Nes kommunes aktivitetskalender: {diagnose}", rolle),
         )
     return RedirectResponse(url="/innhosting", status_code=303)
 
@@ -565,7 +593,9 @@ def _sorter_med_duplikater_samlet(arrangementer: list[Arrangement]) -> tuple[lis
     return sortert, set(duplikatgrupper.keys())
 
 
-def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
+def _innhosting_kontekst(
+    request: Request, session: Session, feilmelding: str | None = None, rolle: str = "journalist"
+) -> dict:
     innstilling = _hent_innstilling(session)
     arrangementer = session.exec(select(Arrangement)).all()
 
@@ -587,6 +617,7 @@ def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | 
         "antall_dager": innstilling.antall_dager,
         "standard_instruks_verdi": standard_instruks(forste_dag, siste_dag),
         "feilmelding": feilmelding,
+        "rolle": rolle,
     }
 
 
@@ -594,10 +625,10 @@ def _innhosting_kontekst(request: Request, session: Session, feilmelding: str | 
 def innhosting_side(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     return templates.TemplateResponse(
-        "innhosting.html", _innhosting_kontekst(request, session)
+        "innhosting.html", _innhosting_kontekst(request, session, rolle=rolle)
     )
 
 
@@ -606,7 +637,7 @@ def kjor_innhosting(
     request: Request,
     instruks: str = Form(...),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -677,7 +708,7 @@ def kjor_innhosting(
     if feil_kilder:
         feilmelding = "Disse kildene feilet under innhøsting: " + "; ".join(feil_kilder)
         return templates.TemplateResponse(
-            "innhosting.html", _innhosting_kontekst(request, session, feilmelding)
+            "innhosting.html", _innhosting_kontekst(request, session, feilmelding, rolle)
         )
     return RedirectResponse(url="/innhosting", status_code=303)
 
@@ -687,7 +718,7 @@ def hent_mer_for_arrangement(
     arrangement_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     a = session.get(Arrangement, arrangement_id)
     if not a:
@@ -701,7 +732,7 @@ def hent_mer_for_arrangement(
         return templates.TemplateResponse(
             "innhosting.html",
             _innhosting_kontekst(
-                request, session, f"Kunne ikke hente mer info for «{a.tittel}»: {e}"
+                request, session, f"Kunne ikke hente mer info for «{a.tittel}»: {e}", rolle
             ),
         )
 
@@ -713,7 +744,7 @@ def hent_mer_for_arrangement(
         session.add(a)
         session.commit()
         return templates.TemplateResponse(
-            "innhosting.html", _innhosting_kontekst(request, session)
+            "innhosting.html", _innhosting_kontekst(request, session, rolle=rolle)
         )
 
     return templates.TemplateResponse(
@@ -722,6 +753,7 @@ def hent_mer_for_arrangement(
             request,
             session,
             f"Fant ikke mer informasjon om «{a.tittel}» enn det som allerede er hentet.",
+            rolle,
         ),
     )
 
@@ -775,7 +807,7 @@ async def last_opp_fil(
     request: Request,
     fil: UploadFile = File(...),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -795,13 +827,14 @@ async def last_opp_fil(
                     session,
                     f"Filtypen '{fil.content_type}' støttes ikke. Bruk JPEG, PNG, WEBP, "
                     "GIF eller PDF.",
+                    rolle,
                 ),
             )
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
             _innhosting_kontekst(
-                request, session, f"Kunne ikke tolke filen '{fil.filename}': {e}"
+                request, session, f"Kunne ikke tolke filen '{fil.filename}': {e}", rolle
             ),
         )
 
@@ -821,7 +854,7 @@ async def lim_inn_tekst(
     request: Request,
     tekst: str = Form(...),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -829,7 +862,7 @@ async def lim_inn_tekst(
     if not tekst.strip():
         return templates.TemplateResponse(
             "innhosting.html",
-            _innhosting_kontekst(request, session, "Ingen tekst ble limt inn."),
+            _innhosting_kontekst(request, session, "Ingen tekst ble limt inn.", rolle),
         )
 
     try:
@@ -837,7 +870,7 @@ async def lim_inn_tekst(
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
-            _innhosting_kontekst(request, session, f"Kunne ikke tolke den limte inn teksten: {e}"),
+            _innhosting_kontekst(request, session, f"Kunne ikke tolke den limte inn teksten: {e}", rolle),
         )
 
     eksisterende = session.exec(select(Arrangement)).all()
@@ -907,7 +940,9 @@ def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel, arrangement_opps
     return avsnitt_liste
 
 
-def _artikler_kontekst(request: Request, session: Session, feilmelding: str | None = None) -> dict:
+def _artikler_kontekst(
+    request: Request, session: Session, feilmelding: str | None = None, rolle: str = "journalist"
+) -> dict:
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
@@ -936,6 +971,7 @@ def _artikler_kontekst(request: Request, session: Session, feilmelding: str | No
         "siste_dag": siste_dag,
         "artikkel_instruks_verdi": standard_artikkel_instruks(),
         "feilmelding": feilmelding,
+        "rolle": rolle,
     }
 
 
@@ -943,9 +979,9 @@ def _artikler_kontekst(request: Request, session: Session, feilmelding: str | No
 def artikler_side(
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
-    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session))
+    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session, rolle=rolle))
 
 
 @app.post("/artikler/generer")
@@ -953,7 +989,7 @@ def generer_artikkel_rute(
     request: Request,
     instruks: str = Form(...),
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -973,6 +1009,7 @@ def generer_artikkel_rute(
                 session,
                 "Ingen valgte arrangementer i utkastet for gjeldende periode. Gå til "
                 "Innhøsting og velg noen først.",
+                rolle,
             ),
         )
 
@@ -981,13 +1018,13 @@ def generer_artikkel_rute(
     except Exception as e:
         return templates.TemplateResponse(
             "artikler.html",
-            _artikler_kontekst(request, session, f"Kunne ikke generere artikkelen: {e}"),
+            _artikler_kontekst(request, session, f"Kunne ikke generere artikkelen: {e}", rolle),
         )
 
     if not resultat:
         return templates.TemplateResponse(
             "artikler.html",
-            _artikler_kontekst(request, session, "Fikk ikke generert noen artikkel. Prøv igjen."),
+            _artikler_kontekst(request, session, "Fikk ikke generert noen artikkel. Prøv igjen.", rolle),
         )
 
     ny_artikkel = Artikkel(tittel=resultat["tittel"], ingress=resultat["ingress"])
@@ -1087,7 +1124,7 @@ def hent_mer_for_avsnitt(
     avsnitt_id: int,
     request: Request,
     session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
+    rolle: str = Depends(sjekk_passord),
 ):
     rad = session.get(ArtikkelAvsnitt, avsnitt_id)
     if not rad:
@@ -1108,7 +1145,7 @@ def hent_mer_for_avsnitt(
         return templates.TemplateResponse(
             "artikler.html",
             _artikler_kontekst(
-                request, session, f"Kunne ikke hente mer info for «{arrangement.tittel}»: {e}"
+                request, session, f"Kunne ikke hente mer info for «{arrangement.tittel}»: {e}", rolle
             ),
         )
 
@@ -1120,6 +1157,7 @@ def hent_mer_for_avsnitt(
                 session,
                 f"Fant ikke mer informasjon om «{arrangement.tittel}» enn det som allerede "
                 "er hentet.",
+                rolle,
             ),
         )
 
@@ -1136,7 +1174,7 @@ def hent_mer_for_avsnitt(
         return templates.TemplateResponse(
             "artikler.html",
             _artikler_kontekst(
-                request, session, f"Hentet mer info, men klarte ikke omskrive avsnittet: {e}"
+                request, session, f"Hentet mer info, men klarte ikke omskrive avsnittet: {e}", rolle
             ),
         )
 
@@ -1145,4 +1183,4 @@ def hent_mer_for_avsnitt(
         session.add(rad)
         session.commit()
 
-    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session))
+    return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session, rolle=rolle))
