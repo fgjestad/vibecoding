@@ -467,7 +467,8 @@ def hent_fotballkamper_rute(
     berorte_grupper: set[str] = set()
     for a in rå:
         _lagre_arrangement(
-            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
+            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper,
+            ikke_duplikat_par, sjekk_duplikater=False,
         )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
@@ -578,24 +579,33 @@ def _lagre_arrangement(
     flerdags_kandidater: list[Arrangement],
     berorte_grupper: set[str],
     ikke_duplikat_par: set[frozenset[str]],
+    sjekk_duplikater: bool = True,
 ) -> bool:
     """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret
     (eller slått sammen inn i et eksisterende gjentakende arrangement).
 
-    Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før.
+    Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før —
+    uavhengig av sjekk_duplikater under, siden dette bare fanger opp at NØYAKTIG samme funn
+    kommer inn to ganger (f.eks. om innhøsting kjøres to ganger), ikke fuzzy kryss-kilde-
+    duplikater.
 
     Hvis dette tydelig er samme arrangement som et allerede lagret, bare på en annen dato (se
     _finn_gjentakende_arrangementer), utvides det eksisterendes flere_datoer i stedet for å
     opprette en ny rad — slik unngås at et arrangement som gjentas flere ganger (sammenhengende
     eller ikke, f.eks. bare i helgene) vises som mange separate, forvirrende endags-rader.
 
-    Ellers gjelder vanlig duplikatsjekk: sannsynlige duplikater (fanget opp av
-    er_tittel_duplikat — fuzzy tittel-sammenligning mot alt annet lagret på samme dato, se
-    harvest.er_tittel_duplikat) knyttes sammen i en delt duplikat_gruppe (ny, eller en de
-    allerede tilhører) og avhukes alle av — berorte_grupper samler opp hvilke grupper som
-    fikk et nytt medlem denne kjøringen, slik at den sammenslåtte AI-oppføringen for gruppen
-    kan (re)genereres étt samlet gang etter at hele batchen er lagret (se
-    _oppdater_sammenslatte_grupper), i stedet for ett AI-kall per nytt duplikat-funn."""
+    Ellers gjelder vanlig duplikatsjekk MED MINDRE sjekk_duplikater=False: sannsynlige
+    duplikater (fanget opp av er_tittel_duplikat — fuzzy tittel-sammenligning mot alt annet
+    lagret på samme dato, se harvest.er_tittel_duplikat) knyttes sammen i en delt
+    duplikat_gruppe (ny, eller en de allerede tilhører) og avhukes alle av — berorte_grupper
+    samler opp hvilke grupper som fikk et nytt medlem denne kjøringen, slik at den
+    sammenslåtte AI-oppføringen for gruppen kan (re)genereres étt samlet gang etter at hele
+    batchen er lagret (se _oppdater_sammenslatte_grupper), i stedet for ett AI-kall per nytt
+    duplikat-funn. sjekk_duplikater=False brukes for fotballkamper (se
+    hent_fotballkamper_rute) — der er fotball.no eneste kilde og hver kamp forekommer i kun
+    én versjon, så fuzzy kryss-kilde-duplikatsjekk (og et unødvendig AI-sammenslåingskall) gir
+    ingen verdi og risikerer bare å feilaktig slå en fotballkamp sammen med et urelatert
+    arrangement fra en annen kilde med lignende tittel/klokkeslett samme dag."""
     tittel = str(data.get("tittel") or "").strip()
     dato_str = str(data.get("dato") or "").strip()
     sted = str(data.get("sted") or "").strip()
@@ -658,25 +668,25 @@ def _lagre_arrangement(
 
     klokkeslett = data.get("klokkeslett")
     samme_dato = hittil_pr_dato.setdefault(dato_str, [])
-    matchende = [
-        annen for annen in samme_dato
-        if er_tittel_duplikat(tittel, klokkeslett, annen.tittel, annen.klokkeslett)
-        and frozenset({signatur, annen.signatur}) not in ikke_duplikat_par
-    ]
-
     duplikat_gruppe = None
-    if matchende:
-        duplikat_gruppe = next((m.duplikat_gruppe for m in matchende if m.duplikat_gruppe), None)
-        if not duplikat_gruppe:
-            duplikat_gruppe = f"g-{uuid.uuid4().hex[:12]}"
-        for annen in matchende:
-            if not annen.duplikat_gruppe:
-                annen.duplikat_gruppe = duplikat_gruppe
-                session.add(annen)
-            if annen.valgt:
-                annen.valgt = False
-                session.add(annen)
-        berorte_grupper.add(duplikat_gruppe)
+    if sjekk_duplikater:
+        matchende = [
+            annen for annen in samme_dato
+            if er_tittel_duplikat(tittel, klokkeslett, annen.tittel, annen.klokkeslett)
+            and frozenset({signatur, annen.signatur}) not in ikke_duplikat_par
+        ]
+        if matchende:
+            duplikat_gruppe = next((m.duplikat_gruppe for m in matchende if m.duplikat_gruppe), None)
+            if not duplikat_gruppe:
+                duplikat_gruppe = f"g-{uuid.uuid4().hex[:12]}"
+            for annen in matchende:
+                if not annen.duplikat_gruppe:
+                    annen.duplikat_gruppe = duplikat_gruppe
+                    session.add(annen)
+                if annen.valgt:
+                    annen.valgt = False
+                    session.add(annen)
+            berorte_grupper.add(duplikat_gruppe)
 
     nytt = Arrangement(
         arrangement_id=arrangement_id,
