@@ -84,7 +84,7 @@
         <div id="gjeldende-artikkel">
           <div class="kort">
             <p class="meta" style="margin: 0 0 0.5rem;">
-              Generert {{ artikkel.opprettet_at.strftime("%d.%m.%Y kl. %H:%M") }}
+              Generert {{ artikkel.opprettet_at | oslo_tid }}
             </p>
             <label>Tittel
               <input
@@ -171,7 +171,7 @@
       <h2 style="margin-top: 3rem;">Tidligere artikler ({{ tidligere_artikler|length }})</h2>
       {% for eldre in tidligere_artikler %}
         <details class="kort" style="margin-top: 0.75rem;">
-          <summary>{{ eldre.opprettet_at.strftime("%d.%m.%Y %H:%M") }} — {{ eldre.tittel }}</summary>
+          <summary>{{ eldre.opprettet_at | oslo_tid("%d.%m.%Y %H:%M") }} — {{ eldre.tittel }}</summary>
           <div id="arkivert-{{ eldre.id }}" style="margin-top: 0.75rem;">
             <label>Tittel
               <input
