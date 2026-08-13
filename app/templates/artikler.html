@@ -3,11 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Artikkel — Raumnes arrangementer</title>
+  <title>Artikkel — Raumnes kalendergenerator</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/jpeg" href="/static/R_309x309.jpg" />
 </head>
 <body>
   <main>
+    <div class="tjeneste-header">
+      <img src="/static/Raumnes%20logo280x60.png" alt="Raumnes" />
+      <span>kalendergenerator</span>
+    </div>
     <nav class="meny">
       {% if rolle == 'admin' %}<a href="/">Kildeliste</a> · {% endif %}
       <a href="/innhosting">Innhøsting</a> ·
@@ -39,13 +44,33 @@
       <button type="submit" class="primær" id="generer-knapp" style="margin-top: 0.75rem;">
         Generer artikkel
       </button>
+      {% if rolle == 'admin' %}
+        <button
+          type="submit"
+          formaction="/artikler/instruks"
+          formmethod="post"
+          style="margin-top: 0.75rem;"
+        >
+          Lagre som standard-prompt
+        </button>
+      {% endif %}
       <p class="meta" style="margin: 0.5rem 0 0;">
         Den nye artikkelen blir den gjeldende; en eventuell tidligere artikkel blir liggende
         under "Tidligere artikler" nederst på siden, ikke slettet.
+        {% if rolle == 'admin' %}
+          "Lagre som standard-prompt" lagrer teksten over som forhåndsutfylt instruks for alle,
+          uten å generere en artikkel.
+        {% endif %}
       </p>
     </form>
     <script>
-      document.getElementById("generer-skjema").addEventListener("submit", function () {
+      document.getElementById("generer-skjema").addEventListener("submit", function (event) {
+        // Skjemaet har to send-knapper (generer artikkel / lagre som standard-prompt) —
+        // vis kun "skriver artikkel"-spinneren når det faktisk er generer-knappen som ble
+        // trykket, ikke ved lagring av instruksen (som er en rask, egen handling).
+        if (event.submitter && event.submitter.id !== "generer-knapp") {
+          return;
+        }
         var knapp = document.getElementById("generer-knapp");
         knapp.disabled = true;
         knapp.innerHTML = '<span class="spinner"></span> Skriver artikkel … (kan ta ett minutt)';

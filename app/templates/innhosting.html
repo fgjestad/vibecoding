@@ -3,11 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Innhøsting — Raumnes arrangementer</title>
+  <title>Innhøsting — Raumnes kalendergenerator</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/jpeg" href="/static/R_309x309.jpg" />
 </head>
 <body>
   <main>
+    <div class="tjeneste-header">
+      <img src="/static/Raumnes%20logo280x60.png" alt="Raumnes" />
+      <span>kalendergenerator</span>
+    </div>
     <nav class="meny">
       {% if rolle == 'admin' %}<a href="/">Kildeliste</a> · {% endif %}
       <a href="/innhosting" class="aktiv-lenke">Innhøsting</a> ·
