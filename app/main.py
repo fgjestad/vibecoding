@@ -1539,6 +1539,46 @@ def flytt_avsnitt_ned(
     return RedirectResponse(url="/artikler", status_code=303)
 
 
+def _flytt_avsnitt_til_posisjon(session: Session, avsnitt_id: int, ny_posisjon: int) -> None:
+    """Flytter et avsnitt direkte til en gitt 1-indeksert posisjon i artikkelen — de andre
+    avsnittene skyves tilsvarende, i stedet for å måtte klikke opp/ned-pilene gjentatte
+    ganger for lange forflytninger."""
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if not rad:
+        return
+    naboer = session.exec(
+        select(ArtikkelAvsnitt)
+        .where(ArtikkelAvsnitt.artikkel_id == rad.artikkel_id)
+        .order_by(ArtikkelAvsnitt.rekkefolge)
+    ).all()
+    uten_rad = [n for n in naboer if n.id != rad.id]
+    ny_indeks = max(0, min(ny_posisjon - 1, len(uten_rad)))
+    uten_rad.insert(ny_indeks, rad)
+    for rekkefolge, avsnitt in enumerate(uten_rad):
+        avsnitt.rekkefolge = rekkefolge
+        session.add(avsnitt)
+    session.commit()
+
+
+@app.post("/artikler/avsnitt/{avsnitt_id}/flytt-til")
+async def flytt_avsnitt_til(
+    avsnitt_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    # Skjemafeltet er navngitt unikt per avsnitt (posisjon_{id}) siden opp/ned/slett/flytt-
+    # knappene for ALLE avsnitt deler samme omsluttende <form> (se artikler.html) — uten det
+    # ville ett felles feltnavn kollidert på tvers av avsnittene.
+    skjema = await request.form()
+    try:
+        ny_posisjon = int(str(skjema.get(f"posisjon_{avsnitt_id}") or ""))
+    except ValueError:
+        return RedirectResponse(url="/artikler", status_code=303)
+    _flytt_avsnitt_til_posisjon(session, avsnitt_id, ny_posisjon)
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
 @app.post("/artikler/avsnitt/{avsnitt_id}/slett")
 def slett_avsnitt(
     avsnitt_id: int,
