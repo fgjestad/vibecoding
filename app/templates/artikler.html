@@ -138,10 +138,22 @@
                   >
                     Hent mer info
                   </button>
+                  <button
+                    type="submit"
+                    formaction="/artikler/avsnitt/{{ a.id }}/slett"
+                    formmethod="post"
+                    class="faresone"
+                    style="font-size: 0.75rem;"
+                    onclick="return confirm('Slette dette avsnittet fra artikkelen? Dette kan ikke angres.');"
+                  >
+                    Slett
+                  </button>
                 </div>
               </div>
             </div>
           {% endfor %}
+
+          <p class="meta kalender-fotnote" style="margin-top: 1.5rem;">{{ kalender_fotnote }}</p>
         </div>
 
         <button type="submit" class="primær" style="margin-top: 1rem;">Lagre endringer</button>
@@ -212,6 +224,8 @@
               </div>
             {% endfor %}
 
+            <p class="meta kalender-fotnote" style="margin-top: 1rem;">{{ kalender_fotnote }}</p>
+
             <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
               <button
                 type="button"
@@ -264,9 +278,16 @@
           .replace(/\n/g, "<br>");
       }
 
+      function linkifyUrls(tekst) {
+        return tekst.replace(/(https?:\/\/[^\s]+)/g, function (url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener">' + url + "</a>";
+        });
+      }
+
       function samleArtikkel(container) {
         var tittelEl = container.querySelector(".artikkel-tittel-felt");
         var ingressEl = container.querySelector(".artikkel-ingress-felt");
+        var fotnoteEl = container.querySelector(".kalender-fotnote");
         var avsnitt = [];
         container.querySelectorAll(".avsnitt-tekst").forEach(function (el) {
           avsnitt.push({
@@ -276,7 +297,12 @@
             nyKategori: el.dataset.nyKategori === "true",
           });
         });
-        return { tittel: tittelEl.value, ingress: ingressEl.value, avsnitt: avsnitt };
+        return {
+          tittel: tittelEl.value,
+          ingress: ingressEl.value,
+          avsnitt: avsnitt,
+          fotnote: fotnoteEl ? fotnoteEl.textContent.trim() : "",
+        };
       }
 
       function varsleKopiert(id) {
@@ -300,6 +326,9 @@
           deler.push(markdownTilRentekst(a.tekst));
           deler.push("");
         });
+        if (data.fotnote) {
+          deler.push(data.fotnote);
+        }
         navigator.clipboard.writeText(deler.join("\n").trim()).then(function () {
           varsleKopiert(knappId);
         });
@@ -316,6 +345,9 @@
           }
           html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
         });
+        if (data.fotnote) {
+          html += "<p><small>" + linkifyUrls(escapeHtml(data.fotnote)) + "</small></p>";
+        }
         var plain = [data.tittel, "", data.ingress, ""];
         data.avsnitt.forEach(function (a) {
           if (a.nyKategori) {
@@ -325,6 +357,9 @@
           plain.push(markdownTilRentekst(a.tekst));
           plain.push("");
         });
+        if (data.fotnote) {
+          plain.push(data.fotnote);
+        }
 
         var item = new ClipboardItem({
           "text/plain": new Blob([plain.join("\n").trim()], { type: "text/plain" }),
