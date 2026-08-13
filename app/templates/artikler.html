@@ -112,6 +112,7 @@
             <div class="kort" style="margin-top: 0.75rem;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
                 <div style="flex: 1;">
+                  <div class="meta" style="margin-bottom: 0.3rem;"><strong>#{{ loop.index }}</strong></div>
                   <textarea
                     name="avsnitt_{{ a.id }}"
                     class="avsnitt-tekst"
@@ -129,6 +130,27 @@
                 <div style="display: flex; flex-direction: column; gap: 0.3rem;">
                   <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/opp" formmethod="post" title="Flytt opp">↑</button>
                   <button type="submit" formaction="/artikler/avsnitt/{{ a.id }}/ned" formmethod="post" title="Flytt ned">↓</button>
+                  <div style="display: flex; gap: 0.2rem; align-items: center;">
+                    <input
+                      type="number"
+                      name="posisjon_{{ a.id }}"
+                      value="{{ loop.index }}"
+                      min="1"
+                      max="{{ avsnitt|length }}"
+                      style="width: 3rem; font-family: inherit;"
+                      onkeydown="if (event.key === 'Enter') { event.preventDefault(); }"
+                      title="Ny posisjon"
+                    />
+                    <button
+                      type="submit"
+                      formaction="/artikler/avsnitt/{{ a.id }}/flytt-til"
+                      formmethod="post"
+                      style="font-size: 0.75rem;"
+                      title="Flytt til denne posisjonen"
+                    >
+                      Flytt til
+                    </button>
+                  </div>
                   <button
                     type="submit"
                     formaction="/artikler/avsnitt/{{ a.id }}/hent-mer"
@@ -369,6 +391,33 @@
           varsleKopiert(knappId);
         });
       }
+    </script>
+
+    <script>
+      // Alle knappene på siden (piler, hent mer, slett, flytt til, lagre, generer) sender inn
+      // et helt sideskjema og laster siden på nytt — uten dette havner brukeren øverst på
+      // siden etter hvert eneste klikk, selv om de jobbet langt nede i en lang avsnittsliste.
+      // Husker derfor scrollposisjonen i sessionStorage rett før innsending, og gjenoppretter
+      // den når den nye siden er ferdig lastet.
+      (function () {
+        var NØKKEL = "artikkelside-scroll-y";
+        document.addEventListener(
+          "submit",
+          function () {
+            try {
+              sessionStorage.setItem(NØKKEL, String(window.scrollY));
+            } catch (e) {}
+          },
+          true
+        );
+        try {
+          var lagretY = sessionStorage.getItem(NØKKEL);
+          if (lagretY !== null) {
+            sessionStorage.removeItem(NØKKEL);
+            window.scrollTo(0, parseInt(lagretY, 10) || 0);
+          }
+        } catch (e) {}
+      })();
     </script>
   </main>
 </body>
