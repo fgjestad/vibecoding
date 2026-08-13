@@ -374,6 +374,16 @@
                 Kryss av en av disse i stedet — og kryss vekk den sammenslåtte oppføringen over — hvis du
                 heller vil bruke én kildes ordrette tekst direkte.
               </p>
+              <button
+                type="submit"
+                formaction="/innhosting/{{ gruppe.hoved.id }}/ikke-duplikat"
+                formmethod="post"
+                class="faresone"
+                style="margin-bottom: 0.75rem;"
+                onclick="return confirm('Dette er ikke duplikater? Den sammenslåtte oppføringen slettes, og kildene under vises som egne arrangementer i stedet (forhåndsvalgt). Disse to slås ikke sammen automatisk igjen ved senere innhøsting.');"
+              >
+                Ikke duplikater — del opp
+              </button>
               {% for alt in gruppe.alternativer %}
                 {{ arrangementkort(alt) }}
               {% endfor %}

@@ -83,6 +83,9 @@
       <form method="post" action="/artikler/lagre" id="lagre-skjema" style="margin-top: 2rem;">
         <div id="gjeldende-artikkel">
           <div class="kort">
+            <p class="meta" style="margin: 0 0 0.5rem;">
+              Generert {{ artikkel.opprettet_at.strftime("%d.%m.%Y kl. %H:%M") }}
+            </p>
             <label>Tittel
               <input
                 type="text"
