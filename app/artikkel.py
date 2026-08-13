@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 
 from anthropic import Anthropic
@@ -8,6 +9,8 @@ from anthropic import Anthropic
 from app.models import Arrangement
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+
+MINSTE_KATEGORI_STORRELSE = 3
 
 
 def standard_artikkel_instruks() -> str:
@@ -75,15 +78,29 @@ def _kategori_prioritet(kategori: str) -> int:
     return 2
 
 
-def generer_hel_artikkel(arrangementer: list[Arrangement], instruks: str | None = None) -> dict | None:
+def generer_hel_artikkel(
+    arrangementer: list[Arrangement], instruks: str | None = None
+) -> tuple[dict | None, str]:
     """Skriver én artikkel for hele perioden, med ett avsnitt per arrangement, gruppert under
     mellomtitler per kategori. Barn og unge kommer først, deretter kultur, så resten.
 
-    Returnerer {"tittel", "ingress", "avsnitt": [{"arrangement_id", "kategori", "tekst"}]} i
-    riktig visningsrekkefølge, eller None ved feil/tomt input.
+    Kategori-instruksen (hvordan mellomtitlene velges) ligger her i koden, IKKE i den
+    redigerbare stilinstruksen (standard_artikkel_instruks) — den gjelder kun teksten i hvert
+    avsnitt, ikke kategoriseringen/grupperingen. En kategori som etter genereringen ender opp
+    med færre enn MINSTE_KATEGORI_STORRELSE avsnitt slås sammen inn i "Annet" i etterkant her
+    i koden — dette er et hardt, garantert krav (uavhengig av om Claude følger ledeteksten om
+    å ikke lage for mange kategorier), for å unngå mellomtitler med bare ett eller to avsnitt
+    under seg.
+
+    Returnerer ({"tittel", "ingress", "avsnitt": [...]}, "") ved suksess, eller
+    (None, diagnosemelding) ved feil — diagnosen er ment å vises til brukeren, så den forklarer
+    konkret hva som gikk galt (og et utdrag av Claudes faktiske svar der det er relevant),
+    fremfor en generisk "noe gikk galt".
     """
-    if not os.environ.get("ANTHROPIC_API_KEY") or not arrangementer:
-        return None
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return None, "ANTHROPIC_API_KEY er ikke satt på serveren."
+    if not arrangementer:
+        return None, "Ingen arrangementer å skrive om."
 
     instruks = instruks if instruks is not None else standard_artikkel_instruks()
     sorterte = sorter_arrangementer(arrangementer)
@@ -120,7 +137,11 @@ eksklusive eller oppsiktsvekkende blant arrangementene i perioden
 skal også ha en "kategori" du velger fritt ut fra hva slags arrangement det er. Bruk "Barn og \
 unge" for arrangementer rettet mot barn/ungdom, og "Kultur" for kulturarrangementer (konserter, \
 utstillinger, teater o.l.) når det passer — ellers velg en kort, dekkende kategori selv \
-(f.eks. idrett, frivillighet, livssyn). Disse kategoriene brukes som mellomtitler i artikkelen.
+(f.eks. idrett, frivillighet, livssyn). Disse kategoriene brukes som mellomtitler i artikkelen — \
+hold antallet ULIKE kategorier lavt (færrest mulig, typisk 2-4 totalt for en vanlig periode): \
+slå sammen beslektede arrangementer under samme, bredere kategori i stedet for å finne opp en \
+ny for hver type. Bruk "Annet" for enkeltstående arrangementer som ikke naturlig hører til en \
+av de andre kategoriene du har valgt.
 
 For hvert avsnitt gjelder:
 {instruks}
@@ -135,24 +156,43 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
-    except Exception:
-        return None
+    except Exception as e:
+        return None, (
+            f"Kallet til Claude feilet: {type(e).__name__}: {e}. "
+            "Prøv igjen om litt — hvis det gjentar seg, kan det være en midlertidig feil hos "
+            "Anthropic, eller at ANTHROPIC_API_KEY mangler gyldig kreditt/tilgang."
+        )
 
     tekst = "".join(b.text for b in response.content if b.type == "text")
     match = re.search(r"\{.*\}", tekst, re.DOTALL)
     if not match:
-        return None
+        utdrag = tekst.strip()[:300]
+        return None, (
+            "Claude svarte, men svaret inneholdt ikke noe gjenkjennbart JSON-objekt. "
+            f"Svar (utdrag): {utdrag!r}. Prøv igjen, eller prøv med en kortere/enklere "
+            "stilinstruks — et svært langt eller uvanlig formulert instruks-felt kan noen "
+            "ganger få Claude til å svare med forklarende tekst i stedet for bare JSON."
+        )
     try:
         data = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
+    except json.JSONDecodeError as e:
+        utdrag = match.group(0)[:300]
+        return None, (
+            f"Claude svarte med noe som skulle være JSON, men det var ikke gyldig ({e}). "
+            f"Utdrag: {utdrag!r}. Dette skjer typisk hvis svaret ble kuttet av fordi det ble "
+            "for langt (prøv med færre valgte arrangementer, eller del opp i flere kortere "
+            "perioder) — prøv igjen først, det er ofte forbigående."
+        )
     if not isinstance(data, dict):
-        return None
+        return None, f"Claude svarte med gyldig JSON, men ikke et objekt (fikk {type(data).__name__}). Prøv igjen."
 
     tittel = str(data.get("tittel") or "").strip()
     ingress = str(data.get("ingress") or "").strip()
     if not tittel or not ingress:
-        return None
+        return None, (
+            f"Claude sitt svar manglet tittel og/eller ingress (fikk feltene: "
+            f"{', '.join(data.keys()) or 'ingen'}). Prøv igjen."
+        )
 
     arrangement_pr_id = {a.id: a for a in sorterte}
     mottatt_pr_id: dict[int, dict] = {}
@@ -180,6 +220,14 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
             kategori = "Annet"
         avsnitt.append({"arrangement_id": a.id, "tekst": avsnitt_tekst, "kategori": kategori})
 
+    # Garanter minst MINSTE_KATEGORI_STORRELSE avsnitt bak enhver egen mellomtittel, uavhengig
+    # av hvor mange (for) spesifikke kategorier Claude fant på — en kategori med færre enn det
+    # slås sammen inn i "Annet" i stedet for å få sin egen, nesten tomme mellomtittel.
+    kategori_antall = Counter(rad["kategori"] for rad in avsnitt)
+    for rad in avsnitt:
+        if kategori_antall[rad["kategori"]] < MINSTE_KATEGORI_STORRELSE:
+            rad["kategori"] = "Annet"
+
     # Grupper etter kategori (barn/unge og kultur presset fremst), men behold kronologisk
     # rekkefølge innenfor hver gruppe (stabil sortering).
     kategori_forste_posisjon: dict[str, int] = {}
@@ -189,7 +237,7 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
         key=lambda rad: (_kategori_prioritet(rad["kategori"]), kategori_forste_posisjon[rad["kategori"]])
     )
 
-    return {"tittel": tittel, "ingress": ingress, "avsnitt": avsnitt}
+    return {"tittel": tittel, "ingress": ingress, "avsnitt": avsnitt}, ""
 
 
 def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | None:

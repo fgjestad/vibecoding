@@ -87,6 +87,19 @@ class EkskludertSignatur(SQLModel, table=True):
     sist_fjernet_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class IkkeDuplikatPar(SQLModel, table=True):
+    """Huker at to spesifikke signaturer IKKE skal regnes som duplikater av hverandre, selv
+    om de matcher harvest.er_tittel_duplikat sin fuzzy tittel-sammenligning — satt når
+    brukeren sier fra at en automatisk sammenslåing var feil (se
+    /innhosting/{id}/ikke-duplikat), slik at de samme to arrangementene ikke slås sammen
+    på nytt i en senere innhøsting."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    signatur_a: str = Field(index=True)
+    signatur_b: str = Field(index=True)
+    opprettet_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Artikkel(SQLModel, table=True):
     """Generert artikkelutkast for hele perioden (jobb 3). Erstattes helt ved hver nye kjøring."""
 

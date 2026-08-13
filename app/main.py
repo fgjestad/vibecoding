@@ -1344,7 +1344,7 @@ def generer_artikkel_rute(
         )
 
     try:
-        resultat = generer_hel_artikkel(valgte, instruks=instruks)
+        resultat, diagnose = generer_hel_artikkel(valgte, instruks=instruks)
     except Exception as e:
         return templates.TemplateResponse(
             "artikler.html",
@@ -1354,7 +1354,7 @@ def generer_artikkel_rute(
     if not resultat:
         return templates.TemplateResponse(
             "artikler.html",
-            _artikler_kontekst(request, session, "Fikk ikke generert noen artikkel. Prøv igjen.", rolle),
+            _artikler_kontekst(request, session, f"Fikk ikke generert noen artikkel. {diagnose}", rolle),
         )
 
     ny_artikkel = Artikkel(tittel=resultat["tittel"], ingress=resultat["ingress"])
