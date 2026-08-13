@@ -18,6 +18,10 @@ services:
         value: raumnes
       - key: APP_PASSORD
         sync: false
+      - key: APP_BRUKER_JOURNALIST
+        sync: false
+      - key: APP_PASSORD_JOURNALIST
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL
