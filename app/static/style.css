@@ -205,6 +205,20 @@ details summary {
   }
 }
 
+.spinner-dark {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: var(--accent);
+}
+
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline-block;
+}
+
 button:disabled {
   opacity: 0.8;
   cursor: wait;
