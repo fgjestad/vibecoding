@@ -9,7 +9,8 @@
 <body>
   <main>
     <nav class="meny">
-      <a href="/">Kildeliste</a> · <a href="/innhosting" class="aktiv-lenke">Innhøsting</a> ·
+      {% if rolle == 'admin' %}<a href="/">Kildeliste</a> · {% endif %}
+      <a href="/innhosting" class="aktiv-lenke">Innhøsting</a> ·
       <a href="/artikler">Artikler</a>
     </nav>
 

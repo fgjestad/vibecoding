@@ -55,6 +55,14 @@
             <button type="submit" class="primær" style="margin-top: 0.75rem;">Lagre</button>
           </form>
         </details>
+        {% if not (k.url | dedikert) %}
+          <form hx-post="/kilder/{{ k.id }}/undersok" hx-target="#kilde-liste" hx-swap="outerHTML">
+            <button type="submit">
+              Undersøk kilde
+              <span class="spinner spinner-dark htmx-indicator"></span>
+            </button>
+          </form>
+        {% endif %}
         {% if k.url | dedikert %}
           {# Dedikerte kilder kan ikke deaktiveres — de hentes uansett ikke via denne løypa. #}
         {% elif k.aktiv %}
@@ -73,7 +81,23 @@
 
 <div id="kilde-liste">
   {% if melding %}
-    <p class="meta" style="color: var(--ok);">{{ melding }}</p>
+    <div class="kort" style="border-color: var(--accent);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+        <div id="melding-tekst" style="white-space: pre-line;">{{ melding }}</div>
+        <button
+          type="button"
+          class="kopier-knapp"
+          style="white-space: nowrap; flex-shrink: 0;"
+          onclick="
+            navigator.clipboard.writeText(document.getElementById('melding-tekst').innerText);
+            this.textContent = 'Kopiert!';
+            setTimeout(() => { this.textContent = 'Kopier til Claude Code'; }, 2000);
+          "
+        >
+          Kopier til Claude Code
+        </button>
+      </div>
+    </div>
   {% endif %}
   {% if not kilder %}
     <p class="tom">Ingen kilder lagt til ennå. Legg til en under, eller bruk "oppdag nye kilder".</p>
