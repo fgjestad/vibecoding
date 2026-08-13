@@ -17,6 +17,7 @@ from app.harvest import (
     beregn_periode,
     beregn_signatur,
     diagnostiser_nes_kalender,
+    er_dedikert_kilde,
     er_tittel_duplikat,
     hent_fotballkamper,
     hent_fra_bilde,
@@ -45,6 +46,8 @@ app = FastAPI(title="Raumnes arrangementer")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["domene"] = vertsnavn
+templates.env.filters["dedikert"] = er_dedikert_kilde
+templates.env.tests["dedikert"] = er_dedikert_kilde
 
 MAKS_SAMTIDIGE_KILDER = 5
 
@@ -182,7 +185,7 @@ def deaktiver_kilde(
     _: str = Depends(sjekk_passord),
 ):
     kilde = session.get(Kilde, kilde_id)
-    if kilde:
+    if kilde and not er_dedikert_kilde(kilde.url):
         kilde.aktiv = False
         session.add(kilde)
         session.commit()
@@ -614,6 +617,10 @@ def kjor_innhosting(
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
     flerdags_kandidater = list(eksisterende)
 
+    # Dedikerte kilder (Nes kommune, Visit Greater Oslo) tas med her som alle andre —
+    # hent_fra_kilde ruter dem selv til sin riktige, dedikerte hente-vei internt (se
+    # diagnostiser_nes_kalender / _hent_fra_visitgreateroslo). De har i tillegg egne knapper
+    # på Innhøsting-siden for å hente kun akkurat den kilden, uten å kjøre alt.
     aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
 

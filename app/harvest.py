@@ -194,6 +194,17 @@ def _er_visitgreateroslo_kilde(url: str) -> bool:
     return vert.endswith("visitgreateroslo.com")
 
 
+def er_dedikert_kilde(url: str) -> bool:
+    """True hvis kilden har sin egen dedikerte hente-knapp på Innhøsting-siden (Nes
+    kommunes aktivitetskalender eller Visit Greater Oslo). Slike kilder vises i kildelisten
+    for åpenhetens skyld (så det er tydelig at de faktisk dekkes), men skal ALDRI hentes via
+    den vanlige, generiske "Kjør innhøsting"-knappen — det ville bare vært dobbelthenting av
+    noe som allerede har en bedre, direkte vei — og kan ikke deaktiveres i UI-et."""
+    vert = (urlparse(url).hostname or "").lower()
+    nes_vert = (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower()
+    return _er_visitgreateroslo_kilde(url) or vert == nes_vert
+
+
 def _er_nes_sted(sted: str) -> bool:
     sted_norm = normaliser_tekst(sted)
     if not sted_norm:
@@ -744,8 +755,9 @@ def hent_fra_kilde(
     slik at neste kjøring kan hente direkte uten omveier.
 
     Kjente strukturerte kilder hentes direkte fra sitt eget API, uten AI:
-    - Prokom/ØRU-kalender-widgets (f.eks. Nes kommunes aktivitetskalender, eller et
-      biblioteks egen underside) — se _finn_prokom_widget / _hent_fra_prokom_kalender.
+    - Nes kommunes aktivitetskalender — se diagnostiser_nes_kalender.
+    - Andre Prokom/ØRU-kalender-widgets (f.eks. et biblioteks egen underside) — se
+      _finn_prokom_widget / _hent_fra_prokom_kalender.
     - Visit Greater Oslo — se _hent_fra_visitgreateroslo.
 
     Ellers prøver vi først å hente siden programmatisk og la Claude lese av den rå teksten —
@@ -757,6 +769,13 @@ def hent_fra_kilde(
     """
     if _er_visitgreateroslo_kilde(kilde_url):
         return _hent_fra_visitgreateroslo(kilde_url, forste_dag, siste_dag), None
+
+    if (urlparse(kilde_url).hostname or "").lower() == (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower():
+        # Nes kommunes aktivitetskalender har sluttet å bruke den gamle Prokom-widgeten
+        # (se diagnostiser_nes_kalender), så den generiske widget-deteksjonen lenger ned
+        # finner den ikke lenger — ruter derfor direkte til den kjente fungerende API-veien.
+        arrangementer, _diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
+        return arrangementer, None
 
     rå_resultat = _hent_side_raw(kilde_url)
     if rå_resultat:
