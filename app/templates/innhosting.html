@@ -286,42 +286,68 @@
     </p>
     {% if manuelle_kilder %}
       {% for mk in manuelle_kilder %}
-        <div
-          class="kort {{ 'utelatt' if not mk.aktiv else '' }}"
-          style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;"
-        >
-          <div>
-            <strong>{{ mk.navn }}</strong>
-            <span class="tag">{{ mk.kilde_type }}</span>
-            {% if mk.aktiv %}
-              <span class="tag" style="background: #dcecdd; color: var(--ok);">aktiv</span>
-            {% else %}
-              <span class="tag tag-advarsel">deaktivert</span>
-            {% endif %}
-            <div class="meta">
-              {% if mk.utlopsdato %}Utløper {{ mk.utlopsdato }}{% else %}Ingen arrangementer funnet ennå{% endif %}
-              {% if mk.sist_kjort_at %} · Sist kjørt {{ mk.sist_kjort_at | oslo_tid }}{% endif %}
-              · Lastet opp {{ mk.opprettet_at | oslo_tid }}
+        <div class="kort {{ 'utelatt' if not mk.aktiv else '' }}">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              {% if mk.kilde_type == 'skjermdump' %}
+                <a href="/manuelle-kilder/{{ mk.id }}/innhold" target="_blank" rel="noopener" title="Åpne original versjon">
+                  <img
+                    src="/manuelle-kilder/{{ mk.id }}/innhold"
+                    alt="Forhåndsvisning av {{ mk.navn }}"
+                    style="width: 90px; height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); flex-shrink: 0;"
+                  />
+                </a>
+              {% elif mk.kilde_type == 'pdf' %}
+                <a
+                  href="/manuelle-kilder/{{ mk.id }}/innhold"
+                  target="_blank"
+                  rel="noopener"
+                  title="Åpne original versjon"
+                  style="display: flex; align-items: center; justify-content: center; width: 90px; height: 90px; flex-shrink: 0; border-radius: 6px; border: 1px solid var(--border); background: #f4f4f4; font-size: 0.75rem; text-align: center; color: var(--muted);"
+                >
+                  Åpne PDF
+                </a>
+              {% endif %}
+              <div>
+                <strong>{{ mk.navn }}</strong>
+                <span class="tag">{{ mk.kilde_type }}</span>
+                {% if mk.aktiv %}
+                  <span class="tag" style="background: #dcecdd; color: var(--ok);">aktiv</span>
+                {% else %}
+                  <span class="tag tag-advarsel">deaktivert</span>
+                {% endif %}
+                <div class="meta">
+                  {% if mk.utlopsdato %}Utløper {{ mk.utlopsdato }}{% else %}Ingen arrangementer funnet ennå{% endif %}
+                  {% if mk.sist_kjort_at %} · Sist kjørt {{ mk.sist_kjort_at | oslo_tid }}{% endif %}
+                  · Lastet opp {{ mk.opprettet_at | oslo_tid }}
+                </div>
+                {% if mk.kilde_type == 'limt_inn_tekst' %}
+                  <details style="margin-top: 0.4rem;">
+                    <summary style="cursor: pointer; font-size: 0.85rem;">Vis original tekst</summary>
+                    <p style="white-space: pre-line; margin: 0.4rem 0 0; font-size: 0.9rem;">{{ mk.innhold_tekst }}</p>
+                  </details>
+                {% endif %}
+              </div>
             </div>
-          </div>
-          <div style="display: flex; gap: 0.5rem;">
-            {% if mk.aktiv %}
-              <form method="post" action="/manuelle-kilder/{{ mk.id }}/deaktiver" style="margin: 0;">
-                <button type="submit">Deaktiver</button>
+            <div style="display: flex; gap: 0.5rem;">
+              {% if mk.aktiv %}
+                <form method="post" action="/manuelle-kilder/{{ mk.id }}/deaktiver" style="margin: 0;">
+                  <button type="submit">Deaktiver</button>
+                </form>
+              {% else %}
+                <form method="post" action="/manuelle-kilder/{{ mk.id }}/aktiver" style="margin: 0;">
+                  <button type="submit">Aktiver</button>
+                </form>
+              {% endif %}
+              <form
+                method="post"
+                action="/manuelle-kilder/{{ mk.id }}/slett"
+                style="margin: 0;"
+                onsubmit="return confirm('Slette denne manuelle kilden permanent? Dette kan ikke angres.');"
+              >
+                <button type="submit" class="faresone">Slett</button>
               </form>
-            {% else %}
-              <form method="post" action="/manuelle-kilder/{{ mk.id }}/aktiver" style="margin: 0;">
-                <button type="submit">Aktiver</button>
-              </form>
-            {% endif %}
-            <form
-              method="post"
-              action="/manuelle-kilder/{{ mk.id }}/slett"
-              style="margin: 0;"
-              onsubmit="return confirm('Slette denne manuelle kilden permanent? Dette kan ikke angres.');"
-            >
-              <button type="submit" class="faresone">Slett</button>
-            </form>
+            </div>
           </div>
         </div>
       {% endfor %}
