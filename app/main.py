@@ -3,6 +3,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.artikkel import generer_hel_artikkel, skriv_om_ett_avsnitt, standard_artikkel_instruks
 from app.auth import sjekk_admin, sjekk_passord
-from app.db import get_session, init_db
+from app.db import engine, get_session, init_db
 from app.harvest import (
     NES_KOMMUNE_KALENDER_URL,
     beregn_arrangement_id,
@@ -54,10 +56,15 @@ templates.env.tests["dedikert"] = er_dedikert_kilde
 
 MAKS_SAMTIDIGE_KILDER = 5
 
+scheduler = BackgroundScheduler(timezone="Europe/Oslo")
+_AUTO_INNHOSTING_JOBB_ID = "auto-innhosting"
+
 
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    scheduler.start()
+    _planlegg_auto_innhosting()
 
 
 def _hent_innstilling(session: Session) -> Innstilling:
@@ -70,6 +77,40 @@ def _hent_innstilling(session: Session) -> Innstilling:
     return innstilling
 
 
+def _planlegg_auto_innhosting() -> None:
+    """Leser gjeldende autojobb-innstillinger fra databasen og (re)planlegger den automatiske
+    innhøstingsjobben i tidsplanleggeren. Kalles ved oppstart, og av admin-ruten under hver
+    gang innstillingene lagres, slik at en endring trer i kraft med én gang uten omstart."""
+    with Session(engine) as session:
+        innstilling = _hent_innstilling(session)
+
+    if not innstilling.auto_innhosting_aktiv:
+        if scheduler.get_job(_AUTO_INNHOSTING_JOBB_ID):
+            scheduler.remove_job(_AUTO_INNHOSTING_JOBB_ID)
+        return
+
+    try:
+        time, minutt = (int(d) for d in innstilling.auto_innhosting_klokkeslett.split(":"))
+    except (ValueError, AttributeError):
+        time, minutt = 6, 0
+
+    if innstilling.auto_innhosting_frekvens == "ukentlig":
+        trigger = CronTrigger(day_of_week=innstilling.auto_innhosting_ukedag, hour=time, minute=minutt)
+    else:
+        trigger = CronTrigger(hour=time, minute=minutt)
+    scheduler.add_job(_kjor_automatisk_innhosting, trigger, id=_AUTO_INNHOSTING_JOBB_ID, replace_existing=True)
+
+
+def _kjor_automatisk_innhosting() -> None:
+    """Selve autojobben — kjøres av tidsplanleggeren, ikke av en HTTP-forespørsel. Bruker
+    standardinstruksen (samme som forhåndsutfylt i "Kjør innhøsting"-feltet), siden det ikke
+    finnes noen bruker til stede som kan redigere den."""
+    with Session(engine) as session:
+        innstilling = _hent_innstilling(session)
+        forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+        _utfor_innhosting(session, standard_instruks(forste_dag, siste_dag))
+
+
 @app.post("/innstillinger")
 def oppdater_innstillinger(
     antall_dager: int = Form(...),
@@ -80,6 +121,27 @@ def oppdater_innstillinger(
     innstilling.antall_dager = max(1, min(antall_dager, 90))
     session.add(innstilling)
     session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innstillinger/auto-innhosting")
+def oppdater_auto_innhosting(
+    klokkeslett: str = Form("06:00"),
+    frekvens: str = Form("daglig"),
+    ukedag: int = Form(0),
+    aktiv: bool = Form(False),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    innstilling = _hent_innstilling(session)
+    innstilling.auto_innhosting_aktiv = aktiv
+    innstilling.auto_innhosting_frekvens = "ukentlig" if frekvens == "ukentlig" else "daglig"
+    innstilling.auto_innhosting_ukedag = max(0, min(ukedag, 6))
+    if re.match(r"^\d{1,2}:\d{2}$", klokkeslett or ""):
+        innstilling.auto_innhosting_klokkeslett = klokkeslett
+    session.add(innstilling)
+    session.commit()
+    _planlegg_auto_innhosting()
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
@@ -624,6 +686,25 @@ def _oppdater_sammenslatte_grupper(
     session.commit()
 
 
+def _duplikatgrupper_uten_sammenslaing(session: Session) -> set[str]:
+    """Finner duplikat-grupper som har minst to rå kildefunn, men ennå ingen sammenslått
+    AI-oppføring — enten fordi sammenslåingen aldri er forsøkt, eller fordi et tidligere
+    forsøk feilet (se _oppdater_sammenslatte_grupper). Brukes av "Slå sammen duplikater"-
+    knappen til å vite hvilke grupper som skal (re)forsøkes."""
+    arrangementer = session.exec(
+        select(Arrangement).where(Arrangement.duplikat_gruppe.is_not(None))
+    ).all()
+    per_gruppe: dict[str, list[Arrangement]] = {}
+    for a in arrangementer:
+        per_gruppe.setdefault(a.duplikat_gruppe, []).append(a)
+    return {
+        gruppe_id
+        for gruppe_id, medlemmer in per_gruppe.items()
+        if not any(m.er_sammenslatt for m in medlemmer)
+        and len(medlemmer) >= 2
+    }
+
+
 def _hittil_pr_dato(eksisterende: list[Arrangement]) -> dict[str, list[Arrangement]]:
     """Bygger oppstartstilstanden for duplikatsjekken i _lagre_arrangement, ut fra rå
     arrangementer som allerede finnes i utkastet (sammenslåtte AI-oppføringer holdes utenfor
@@ -718,6 +799,10 @@ def _innhosting_kontekst(
         "standard_instruks_verdi": standard_instruks(forste_dag, siste_dag),
         "feilmelding": feilmelding,
         "rolle": rolle,
+        "auto_innhosting_aktiv": innstilling.auto_innhosting_aktiv,
+        "auto_innhosting_frekvens": innstilling.auto_innhosting_frekvens,
+        "auto_innhosting_ukedag": innstilling.auto_innhosting_ukedag,
+        "auto_innhosting_klokkeslett": innstilling.auto_innhosting_klokkeslett,
     }
 
 
@@ -732,13 +817,12 @@ def innhosting_side(
     )
 
 
-@app.post("/innhosting/kjor")
-def kjor_innhosting(
-    request: Request,
-    instruks: str = Form(...),
-    session: Session = Depends(get_session),
-    rolle: str = Depends(sjekk_passord),
-):
+def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
+    """Selve innhøstingen: henter fra alle aktive kilder parallelt, lagrer nye funn og
+    oppdaterer duplikat-sammenslåinger. Delt mellom "Kjør innhøsting"-knappen (kjor_innhosting)
+    og den automatiske daglige/ukentlige autojobben (_kjor_automatisk_innhosting), slik at de
+    to kjøreveiene aldri kan drifte fra hverandre. Returnerer en liste med feilmeldinger for
+    kilder som feilet (tom liste = alt gikk bra)."""
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
@@ -809,12 +893,34 @@ def kjor_innhosting(
                         session.commit()
 
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
+    return feil_kilder
+
+
+@app.post("/innhosting/kjor")
+def kjor_innhosting(
+    request: Request,
+    instruks: str = Form(...),
+    session: Session = Depends(get_session),
+    rolle: str = Depends(sjekk_passord),
+):
+    feil_kilder = _utfor_innhosting(session, instruks)
 
     if feil_kilder:
         feilmelding = "Disse kildene feilet under innhøsting: " + "; ".join(feil_kilder)
         return templates.TemplateResponse(
             "innhosting.html", _innhosting_kontekst(request, session, feilmelding, rolle)
         )
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/slaa-sammen-duplikater")
+def slaa_sammen_duplikater(
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    berorte_grupper = _duplikatgrupper_uten_sammenslaing(session)
+    _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return RedirectResponse(url="/innhosting", status_code=303)
 
 

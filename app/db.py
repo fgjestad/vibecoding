@@ -76,10 +76,34 @@ def _migrer_artikkel_tabell() -> None:
             conn.execute(text("DROP TABLE artikkel"))
 
 
+def _migrer_innstilling_tabell() -> None:
+    """Lettvekts-migrering: legger til kolonner for autojobb-innstillinger på en allerede
+    eksisterende 'innstilling'-tabell, uten å slette den eksisterende raden."""
+    inspector = inspect(engine)
+    if "innstilling" not in inspector.get_table_names():
+        return
+
+    kolonner = {kol["name"] for kol in inspector.get_columns("innstilling")}
+    with engine.begin() as conn:
+        if "auto_innhosting_aktiv" not in kolonner:
+            conn.execute(text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_aktiv BOOLEAN NOT NULL DEFAULT 0"))
+        if "auto_innhosting_frekvens" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_frekvens TEXT NOT NULL DEFAULT 'daglig'")
+            )
+        if "auto_innhosting_ukedag" not in kolonner:
+            conn.execute(text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_ukedag INTEGER NOT NULL DEFAULT 0"))
+        if "auto_innhosting_klokkeslett" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_klokkeslett TEXT NOT NULL DEFAULT '06:00'")
+            )
+
+
 def init_db() -> None:
     _migrer_arrangement_tabell()
     _migrer_kilde_tabell()
     _migrer_artikkel_tabell()
+    _migrer_innstilling_tabell()
     SQLModel.metadata.create_all(engine)
 
 

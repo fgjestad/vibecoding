@@ -114,3 +114,15 @@ class Innstilling(SQLModel, table=True):
     antall_dager: int = Field(
         default=14, description="Hvor mange dager fram i tid (fra i morgen) perioden dekker"
     )
+    auto_innhosting_aktiv: bool = Field(
+        default=False, description="True hvis 'Kjør innhøsting' skal kjøres automatisk på et fast tidsskjema"
+    )
+    auto_innhosting_frekvens: str = Field(
+        default="daglig", description="daglig | ukentlig"
+    )
+    auto_innhosting_ukedag: int = Field(
+        default=0, description="Ukedag for ukentlig autojobb: 0=mandag ... 6=søndag"
+    )
+    auto_innhosting_klokkeslett: str = Field(
+        default="06:00", description="Klokkeslett (HH:MM) autojobben kjører på"
+    )
