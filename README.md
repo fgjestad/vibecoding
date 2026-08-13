@@ -1,6 +1,6 @@
 # vibecoding
 
-## Raumnes arrangementer — jobb 1: Kildeliste
+## Raumnes kalendergenerator — jobb 1: Kildeliste
 
 Kjør lokalt:
 
