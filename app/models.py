@@ -126,6 +126,13 @@ class ArtikkelAvsnitt(SQLModel, table=True):
     tekst: str = Field(description="Omskrevet avsnittstekst. **dobbel stjerne** markerer fet skrift")
     kategori: str = Field(description="Fritt valgt av Claude, brukes til mellomtitler i artikkelen")
     rekkefolge: int = Field(default=0, index=True)
+    kilde_url: Optional[str] = Field(
+        default=None,
+        description="Snapshot av arrangementets kilde-URL på genereringstidspunktet — lagres "
+        "her (ikke slått opp live mot Arrangement-tabellen) slik at lenken består selv om "
+        "utkastet i Innhøsting senere tømmes eller kjøres på nytt.",
+    )
+    kilde_tittel: str = Field(default="", description="Snapshot av arrangementets tittel, samme begrunnelse som kilde_url")
 
 
 class Innstilling(SQLModel, table=True):

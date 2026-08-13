@@ -111,6 +111,12 @@ templates.env.filters["datoperiode"] = datoperiode_tekst
 
 MAKS_SAMTIDIGE_KILDER = 5
 
+KALENDER_FOTNOTE = (
+    "Denne kalenderen er laget ved hjelp av kunstig intelligens og er gått gjennom av en "
+    "journalist i Raumnes. Ønsker du oppføringer i denne kalenderen, legg det inn i Nes "
+    "kommune sin aktivitetskalender: https://www.nes.kommune.no/aktivitetskalender/"
+)
+
 scheduler = BackgroundScheduler(timezone="Europe/Oslo")
 _AUTO_INNHOSTING_JOBB_ID = "auto-innhosting"
 
@@ -1283,7 +1289,7 @@ def _hent_gjeldende_artikkel(session: Session) -> Artikkel | None:
     return session.exec(select(Artikkel).order_by(Artikkel.id.desc())).first()
 
 
-def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel, arrangement_oppslag: dict) -> list[dict]:
+def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel) -> list[dict]:
     rader = session.exec(
         select(ArtikkelAvsnitt)
         .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
@@ -1292,15 +1298,14 @@ def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel, arrangement_opps
     avsnitt_liste = []
     forrige_kategori = None
     for rad in rader:
-        kilde = arrangement_oppslag.get(rad.arrangement_id)
         avsnitt_liste.append(
             {
                 "id": rad.id,
                 "tekst": rad.tekst,
                 "kategori": rad.kategori,
                 "ny_kategori": rad.kategori != forrige_kategori,
-                "kilde_url": kilde.kilde_url if kilde else None,
-                "kilde_tittel": kilde.tittel if kilde else "",
+                "kilde_url": rad.kilde_url,
+                "kilde_tittel": rad.kilde_tittel,
             }
         )
         forrige_kategori = rad.kategori
@@ -1319,11 +1324,10 @@ def _artikler_kontekst(
 ) -> dict:
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
-    arrangement_oppslag = {a.id: a for a in session.exec(select(Arrangement)).all()}
 
     alle_artikler = session.exec(select(Artikkel).order_by(Artikkel.id.desc())).all()
     artikkel = alle_artikler[0] if alle_artikler else None
-    avsnitt_liste = _avsnitt_for_artikkel(session, artikkel, arrangement_oppslag) if artikkel else []
+    avsnitt_liste = _avsnitt_for_artikkel(session, artikkel) if artikkel else []
 
     tidligere_artikler = [
         {
@@ -1331,7 +1335,7 @@ def _artikler_kontekst(
             "tittel": eldre.tittel,
             "ingress": eldre.ingress,
             "opprettet_at": eldre.opprettet_at,
-            "avsnitt": _avsnitt_for_artikkel(session, eldre, arrangement_oppslag),
+            "avsnitt": _avsnitt_for_artikkel(session, eldre),
         }
         for eldre in alle_artikler[1:]
     ]
@@ -1346,6 +1350,7 @@ def _artikler_kontekst(
         "artikkel_instruks_verdi": _artikkel_instruks_verdi(innstilling),
         "feilmelding": feilmelding,
         "rolle": rolle,
+        "kalender_fotnote": KALENDER_FOTNOTE,
     }
 
 
@@ -1419,7 +1424,9 @@ def generer_artikkel_rute(
     session.commit()
     session.refresh(ny_artikkel)
 
+    valgte_pr_id = {a.id: a for a in valgte}
     for rekkefolge, avsnitt in enumerate(resultat["avsnitt"]):
+        kilde_arrangement = valgte_pr_id.get(avsnitt["arrangement_id"])
         session.add(
             ArtikkelAvsnitt(
                 artikkel_id=ny_artikkel.id,
@@ -1427,6 +1434,8 @@ def generer_artikkel_rute(
                 tekst=avsnitt["tekst"],
                 kategori=avsnitt["kategori"],
                 rekkefolge=rekkefolge,
+                kilde_url=kilde_arrangement.kilde_url if kilde_arrangement else None,
+                kilde_tittel=kilde_arrangement.tittel if kilde_arrangement else "",
             )
         )
     session.commit()
@@ -1506,6 +1515,19 @@ def flytt_avsnitt_ned(
     return RedirectResponse(url="/artikler", status_code=303)
 
 
+@app.post("/artikler/avsnitt/{avsnitt_id}/slett")
+def slett_avsnitt(
+    avsnitt_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if rad:
+        session.delete(rad)
+        session.commit()
+    return RedirectResponse(url="/artikler", status_code=303)
+
+
 @app.post("/artikler/avsnitt/{avsnitt_id}/hent-mer")
 def hent_mer_for_avsnitt(
     avsnitt_id: int,
@@ -1552,6 +1574,8 @@ def hent_mer_for_avsnitt(
     arrangement.tekst_bekreftet = bekreftet
     if ny_url:
         arrangement.kilde_url = ny_url
+        rad.kilde_url = ny_url
+        session.add(rad)
     session.add(arrangement)
     session.commit()
 

@@ -71,6 +71,7 @@ def _migrer_artikkel_tabell() -> None:
         or "ingress" not in kolonner
         or "mulig_kopiert" in avsnitt_kolonner
         or (avsnitt_kolonner and "kategori" not in avsnitt_kolonner)
+        or (avsnitt_kolonner and "kilde_url" not in avsnitt_kolonner)
     )
     if utdatert:
         with engine.begin() as conn:
