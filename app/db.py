@@ -97,6 +97,8 @@ def _migrer_innstilling_tabell() -> None:
             conn.execute(
                 text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_klokkeslett TEXT NOT NULL DEFAULT '06:00'")
             )
+        if "artikkel_instruks" not in kolonner:
+            conn.execute(text("ALTER TABLE innstilling ADD COLUMN artikkel_instruks TEXT"))
 
 
 def init_db() -> None:

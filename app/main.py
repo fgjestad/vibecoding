@@ -47,7 +47,7 @@ from app.models import (
     KildeForslag,
 )
 
-app = FastAPI(title="Raumnes arrangementer")
+app = FastAPI(title="Raumnes kalendergenerator")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["domene"] = vertsnavn
@@ -1155,6 +1155,13 @@ def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel, arrangement_opps
     return avsnitt_liste
 
 
+def _artikkel_instruks_verdi(innstilling: Innstilling) -> str:
+    """Admin kan lagre en egen standard-instruks for artikkelgenerering (se
+    /artikler/instruks) — den overstyrer da den innebygde standarden fra
+    standard_artikkel_instruks() som forhåndsutfylling på Artikler-siden."""
+    return innstilling.artikkel_instruks or standard_artikkel_instruks()
+
+
 def _artikler_kontekst(
     request: Request, session: Session, feilmelding: str | None = None, rolle: str = "journalist"
 ) -> dict:
@@ -1184,7 +1191,7 @@ def _artikler_kontekst(
         "tidligere_artikler": tidligere_artikler,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
-        "artikkel_instruks_verdi": standard_artikkel_instruks(),
+        "artikkel_instruks_verdi": _artikkel_instruks_verdi(innstilling),
         "feilmelding": feilmelding,
         "rolle": rolle,
     }
@@ -1197,6 +1204,19 @@ def artikler_side(
     rolle: str = Depends(sjekk_passord),
 ):
     return templates.TemplateResponse("artikler.html", _artikler_kontekst(request, session, rolle=rolle))
+
+
+@app.post("/artikler/instruks")
+def lagre_artikkel_instruks(
+    instruks: str = Form(...),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    innstilling = _hent_innstilling(session)
+    innstilling.artikkel_instruks = instruks.strip() or None
+    session.add(innstilling)
+    session.commit()
+    return RedirectResponse(url="/artikler", status_code=303)
 
 
 @app.post("/artikler/generer")

@@ -126,3 +126,8 @@ class Innstilling(SQLModel, table=True):
     auto_innhosting_klokkeslett: str = Field(
         default="06:00", description="Klokkeslett (HH:MM) autojobben kjører på"
     )
+    artikkel_instruks: Optional[str] = Field(
+        default=None,
+        description="Admin-lagret overstyring av stilinstruksen for artikkelgenerering. "
+        "None/tom betyr at den innebygde standarden (standard_artikkel_instruks) brukes.",
+    )
