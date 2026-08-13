@@ -68,6 +68,22 @@ def sorter_arrangementer(arrangementer: list[Arrangement]) -> list[Arrangement]:
     return sorted(arrangementer, key=sorteringsnokkel)
 
 
+def _sikre_fet_navn(tekst: str, tittel: str) -> str:
+    """Sikkerhetsnett: standard_artikkel_instruks ber allerede Claude fetstille arrangement-
+    /artist-/lagnavnet i hvert avsnitt (se der), men dette er kun en tekstinstruks og følges
+    ikke 100 % av gangene. "Kopier med formatering" (se markdownTilHtml i artikler.html) lenker
+    det FØRSTE fete ordet til kildens URL — mangler fetstilingen helt, mister brukeren dermed
+    både nøkkelordet og lenken for det avsnittet. Griper derfor bare inn når avsnittet ikke har
+    noen fet skrift i det hele tatt: fetstiler første ordrette forekomst av tittelen i teksten
+    hvis den finnes der, ellers stiller tittelen fremst i fet skrift."""
+    if "**" in tekst or not tittel:
+        return tekst
+    treff = re.search(re.escape(tittel), tekst, re.IGNORECASE)
+    if treff:
+        return tekst[: treff.start()] + f"**{treff.group(0)}**" + tekst[treff.end() :]
+    return f"**{tittel}** – {tekst}" if tekst else f"**{tittel}**"
+
+
 def _kategori_prioritet(kategori: str) -> int:
     """Barn og unge først, deretter kultur, så alle andre kategorier — etter brukerens ønske."""
     normalisert = kategori.lower()
@@ -216,7 +232,7 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, i formatet:
     for a in sorterte:
         mottatt = mottatt_pr_id.get(a.id)
         if mottatt:
-            avsnitt_tekst = mottatt["tekst"]
+            avsnitt_tekst = _sikre_fet_navn(mottatt["tekst"], a.tittel)
             kategori = mottatt["kategori"]
         else:
             # Reserveløsning: Claude hoppet over dette arrangementet — ta med enkel,
@@ -290,4 +306,4 @@ Svar KUN med selve avsnittsteksten, ingen annen tekst, ingen anførselstegn rund
         return None
 
     tekst = "".join(b.text for b in response.content if b.type == "text").strip()
-    return tekst or None
+    return _sikre_fet_navn(tekst, a.tittel) if tekst else None

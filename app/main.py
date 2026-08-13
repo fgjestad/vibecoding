@@ -778,6 +778,18 @@ def _oppdater_sammenslatte_grupper(
         )
         signatur = beregn_signatur(tittel, sammenslatt.get("arrangor"), dato_str)
 
+        # Den sammenslåtte oppføringen har ingen egen kilde-URL (teksten er skrevet av Claude
+        # ut fra FLERE kilder, ikke ordrett fra én bestemt), men artikkel-kopieringen ("Kopier
+        # med formatering") lenker det fete nøkkelordet til nettopp denne URL-en — uten en URL
+        # her mister brukeren lenken helt for sammenslåtte arrangementer. Bruk derfor URL-en
+        # til ett av de rå kildefunnene i stedet: en fast, dedikert kalenderkilde foretrekkes
+        # (mer stabil/relevant enn et generisk nettsøk-treff) hvis noen av medlemmene har det,
+        # ellers den første tilgjengelige.
+        kilde_url = next(
+            (m.kilde_url for m in medlemmer if m.kilde_url and m.kilde_type == "fast_kalender"),
+            next((m.kilde_url for m in medlemmer if m.kilde_url), None),
+        )
+
         eksisterende_sammenslatt = session.exec(
             select(Arrangement).where(
                 Arrangement.duplikat_gruppe == gruppe_id,
@@ -795,6 +807,7 @@ def _oppdater_sammenslatte_grupper(
             eksisterende_sammenslatt.original_tekst = str(sammenslatt.get("original_tekst") or "")
             eksisterende_sammenslatt.geografisk_relevans = beste_relevans
             eksisterende_sammenslatt.signatur = signatur
+            eksisterende_sammenslatt.kilde_url = kilde_url
             session.add(eksisterende_sammenslatt)
         else:
             forhandsvalgt_bort = signatur in ekskluderte_signaturer
@@ -811,7 +824,7 @@ def _oppdater_sammenslatte_grupper(
                     original_tekst=str(sammenslatt.get("original_tekst") or ""),
                     tekst_bekreftet=False,
                     kilde_type="sammenslatt",
-                    kilde_url=None,
+                    kilde_url=kilde_url,
                     geografisk_relevans=beste_relevans,
                     signatur=signatur,
                     valgt=not forhandsvalgt_bort,
