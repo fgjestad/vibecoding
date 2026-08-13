@@ -277,6 +277,58 @@
       })();
     </script>
 
+    <h2>Manuelle kilder</h2>
+    <p class="undertittel">
+      Skjermdumper, PDF-er og limt inn tekst lagres her og gjenbrukes automatisk ved hver
+      "Kjør innhøsting" — filtrert mot gjeldende periode, slik at arrangementer som først lå
+      utenfor vinduet fanges opp automatisk senere i stedet for å gå tapt. En kilde
+      deaktiveres automatisk når siste kjente arrangement-dato er passert.
+    </p>
+    {% if manuelle_kilder %}
+      {% for mk in manuelle_kilder %}
+        <div
+          class="kort {{ 'utelatt' if not mk.aktiv else '' }}"
+          style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;"
+        >
+          <div>
+            <strong>{{ mk.navn }}</strong>
+            <span class="tag">{{ mk.kilde_type }}</span>
+            {% if mk.aktiv %}
+              <span class="tag" style="background: #dcecdd; color: var(--ok);">aktiv</span>
+            {% else %}
+              <span class="tag tag-advarsel">deaktivert</span>
+            {% endif %}
+            <div class="meta">
+              {% if mk.utlopsdato %}Utløper {{ mk.utlopsdato }}{% else %}Ingen arrangementer funnet ennå{% endif %}
+              {% if mk.sist_kjort_at %} · Sist kjørt {{ mk.sist_kjort_at | oslo_tid }}{% endif %}
+              · Lastet opp {{ mk.opprettet_at | oslo_tid }}
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            {% if mk.aktiv %}
+              <form method="post" action="/manuelle-kilder/{{ mk.id }}/deaktiver" style="margin: 0;">
+                <button type="submit">Deaktiver</button>
+              </form>
+            {% else %}
+              <form method="post" action="/manuelle-kilder/{{ mk.id }}/aktiver" style="margin: 0;">
+                <button type="submit">Aktiver</button>
+              </form>
+            {% endif %}
+            <form
+              method="post"
+              action="/manuelle-kilder/{{ mk.id }}/slett"
+              style="margin: 0;"
+              onsubmit="return confirm('Slette denne manuelle kilden permanent? Dette kan ikke angres.');"
+            >
+              <button type="submit" class="faresone">Slett</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="undertittel">Ingen manuelle kilder lastet opp ennå.</p>
+    {% endif %}
+
     {% macro arrangementkort(a, ekstra_tag=None) %}
       <div class="kort {{ 'utelatt' if not a.valgt else '' }}">
         <label style="display: flex; gap: 0.75rem; align-items: flex-start; cursor: pointer;">
