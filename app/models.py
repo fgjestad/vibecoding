@@ -66,6 +66,15 @@ class Arrangement(SQLModel, table=True):
     forhandsvalgt_bort: bool = Field(
         default=False, description="True hvis default-avhuket pga. kjent eksklusjonssignatur"
     )
+    duplikat_gruppe: Optional[str] = Field(
+        default=None,
+        index=True,
+        description="Delt id for alle rå kildefunn og en eventuell sammenslått oppføring i en duplikat-gruppe",
+    )
+    er_sammenslatt: bool = Field(
+        default=False,
+        description="True for en AI-sammenslått oppføring som kombinerer flere duplikate kildefunn til én",
+    )
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
 
 

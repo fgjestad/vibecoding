@@ -218,9 +218,62 @@
       })();
     </script>
 
+    {% macro arrangementkort(a, ekstra_tag=None) %}
+      <div class="kort {{ 'utelatt' if not a.valgt else '' }}">
+        <label style="display: flex; gap: 0.75rem; align-items: flex-start; cursor: pointer;">
+          <input
+            type="checkbox"
+            name="valgt_ider"
+            value="{{ a.id }}"
+            {% if a.valgt %}checked{% endif %}
+            style="margin-top: 0.3rem;"
+          />
+          <div style="flex: 1;">
+            <strong>{{ a.tittel }}</strong>
+            <span class="tag">{{ a.geografisk_relevans }}</span>
+            {% if a.forhandsvalgt_bort %}
+              <span class="tag tag-advarsel">Tidligere deaktivert</span>
+            {% endif %}
+            {% if ekstra_tag %}
+              <span class="tag tag-advarsel">{{ ekstra_tag }}</span>
+            {% endif %}
+            <div class="meta">
+              {{ a.dato }}{% if a.til_dato %} – {{ a.til_dato }}{% endif %}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
+              {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
+            </div>
+            {% if a.er_sammenslatt %}
+              <span class="tag" style="background: #e4e0f5; color: #4b3a8a;">sammenslått av Claude fra flere kilder</span>
+            {% elif a.tekst_bekreftet %}
+              <span class="tag" style="background: #dcecdd; color: var(--ok);">bekreftet ordrett</span>
+            {% else %}
+              <span class="tag tag-advarsel">ikke verifisert ordrett</span>
+            {% endif %}
+            <p style="margin: 0.3rem 0; white-space: pre-line;">{{ a.original_tekst }}</p>
+            <div class="meta">
+              Kilde: {{ a.kilde_type }}
+              {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">{{ a.kilde_url | domene }}</a>{% endif %}
+            </div>
+            {% if a.kilde_url %}
+              <div style="margin-top: 0.4rem;">
+                <button
+                  type="submit"
+                  formaction="/innhosting/{{ a.id }}/hent-mer"
+                  formmethod="post"
+                  class="hent-mer-knapp"
+                  style="font-size: 0.8rem;"
+                >
+                  Hent mer informasjon
+                </button>
+              </div>
+            {% endif %}
+          </div>
+        </label>
+      </div>
+    {% endmacro %}
+
     <div style="display: flex; justify-content: space-between; align-items: baseline;">
-      <h2>Utkast ({{ arrangementer|length }})</h2>
-      {% if arrangementer %}
+      <h2>Utkast ({{ grupper|length }})</h2>
+      {% if grupper %}
         <div style="display: flex; gap: 0.5rem;">
           <form
             method="post"
@@ -239,59 +292,31 @@
         </div>
       {% endif %}
     </div>
-    {% if not arrangementer %}
+    {% if not grupper %}
       <p class="tom">Ingen arrangementer ennå. Trykk "Kjør innhøsting" over, eller last opp en fil.</p>
     {% else %}
       <form method="post" action="/innhosting/lagre-utvalg">
-        {% for a in arrangementer %}
-          <div class="kort {{ 'utelatt' if not a.valgt else '' }}">
-            <label style="display: flex; gap: 0.75rem; align-items: flex-start; cursor: pointer;">
-              <input
-                type="checkbox"
-                name="valgt_ider"
-                value="{{ a.id }}"
-                {% if a.valgt %}checked{% endif %}
-                style="margin-top: 0.3rem;"
-              />
-              <div style="flex: 1;">
-                <strong>{{ a.tittel }}</strong>
-                <span class="tag">{{ a.geografisk_relevans }}</span>
-                {% if a.forhandsvalgt_bort %}
-                  <span class="tag tag-advarsel">Tidligere deaktivert</span>
-                {% endif %}
-                {% if a.id in duplikat_ider %}
-                  <span class="tag tag-advarsel">Mulig duplikat</span>
-                {% endif %}
-                <div class="meta">
-                  {{ a.dato }}{% if a.til_dato %} – {{ a.til_dato }}{% endif %}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
-                  {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
-                </div>
-                {% if a.tekst_bekreftet %}
-                  <span class="tag" style="background: #dcecdd; color: var(--ok);">bekreftet ordrett</span>
-                {% else %}
-                  <span class="tag tag-advarsel">ikke verifisert ordrett</span>
-                {% endif %}
-                <p style="margin: 0.3rem 0; white-space: pre-line;">{{ a.original_tekst }}</p>
-                <div class="meta">
-                  Kilde: {{ a.kilde_type }}
-                  {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">{{ a.kilde_url | domene }}</a>{% endif %}
-                </div>
-                {% if a.kilde_url %}
-                  <div style="margin-top: 0.4rem;">
-                    <button
-                      type="submit"
-                      formaction="/innhosting/{{ a.id }}/hent-mer"
-                      formmethod="post"
-                      class="hent-mer-knapp"
-                      style="font-size: 0.8rem;"
-                    >
-                      Hent mer informasjon
-                    </button>
-                  </div>
-                {% endif %}
-              </div>
-            </label>
-          </div>
+        {% for gruppe in grupper %}
+          {{ arrangementkort(
+            gruppe.hoved,
+            "Mulig duplikat (sammenslåing venter/feilet)" if gruppe.duplikat_uten_sammenslaing else None
+          ) }}
+          {% if gruppe.alternativer %}
+            <details style="margin: -0.5rem 0 0.75rem 2.25rem;">
+              <summary>
+                Vis {{ gruppe.alternativer|length }}
+                {{ "annen kilde" if gruppe.alternativer|length == 1 else "andre kilder" }}
+                for dette arrangementet
+              </summary>
+              <p class="meta" style="margin-top: 0.5rem;">
+                Kryss av en av disse i stedet — og kryss vekk den sammenslåtte oppføringen over — hvis du
+                heller vil bruke én kildes ordrette tekst direkte.
+              </p>
+              {% for alt in gruppe.alternativer %}
+                {{ arrangementkort(alt) }}
+              {% endfor %}
+            </details>
+          {% endif %}
         {% endfor %}
         <button type="submit" class="primær" style="margin-top: 1rem;">Lagre utvalg</button>
       </form>

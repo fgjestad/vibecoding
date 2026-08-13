@@ -566,6 +566,73 @@ def er_tittel_duplikat(
     return likhet >= 0.75
 
 
+def generer_sammenslatt_arrangement(medlemmer: list[dict]) -> dict | None:
+    """Bruker Claude til å skrive ÉN sammenslått beskrivelse av et duplikat-funn fra flere
+    kilder, ved å kombinere det beste/mest komplette fra hver (f.eks. klokkeslett fra én
+    kilde, en detalj som bare står hos en annen). Teksten er da IKKE lenger ordrett fra én
+    bestemt kilde — brukes derfor kun til den synlige, sammenslåtte oppføringen i en
+    duplikat-gruppe, mens de rå enkeltkilde-funnene (fortsatt kode-verifiserbare hver for
+    seg) ligger tilgjengelig som alternativer brukeren kan velge i stedet.
+
+    medlemmer: liste av dict med tittel/dato/klokkeslett/sted/arrangor/original_tekst/
+    kilde_url for hvert rå funn i gruppen (minst 2).
+
+    Returnerer et dict med samme nøkler som et vanlig hentet arrangement, eller None hvis
+    sammenslåingen feiler av noen grunn (ingen API-nøkkel, API-feil, uparsbart svar) — da
+    beholdes de rå funnene som separate oppføringer i stedet, uendret."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+
+    kilder_tekst = "\n\n".join(
+        f"--- Kilde {i + 1} ({m.get('kilde_url') or 'ukjent URL'}) ---\n"
+        f"Tittel: {m['tittel']}\n"
+        f"Klokkeslett: {m.get('klokkeslett') or 'ikke oppgitt'}\n"
+        f"Sted: {m.get('sted') or 'ikke oppgitt'}\n"
+        f"Arrangør: {m.get('arrangor') or 'ikke oppgitt'}\n"
+        f"Tekst: {m['original_tekst']}"
+        for i, m in enumerate(medlemmer)
+    )
+    prompt = f"""Disse {len(medlemmer)} oppføringene er funnet av et automatisk system for \
+lokale arrangementer, og antas å beskrive DET SAMME arrangementet, hentet fra ulike kilder:
+
+{kilder_tekst}
+
+Skriv én samlet, presis beskrivelse av arrangementet som kombinerer det beste og mest \
+komplette fra kildene over — f.eks. bruk klokkeslettet fra den kilden som faktisk oppgir \
+det, ta med en detalj som bare står hos én av kildene, osv. IKKE finn på informasjon som \
+ikke står i noen av kildene over.
+
+Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, med nøklene:
+- "tittel": kort tittel
+- "dato": YYYY-MM-DD
+- "klokkeslett": f.eks. "18:00", eller null hvis ingen kilde oppgir det
+- "sted": stedsnavn/adresse
+- "arrangor": arrangør, eller null hvis ingen kilde oppgir det
+- "original_tekst": den sammenslåtte beskrivelsen"""
+    client = Anthropic()
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            output_config={"effort": "medium"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception:
+        return None
+
+    tekst = "".join(b.text for b in response.content if b.type == "text")
+    match = re.search(r"\{.*\}", tekst, re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or not data.get("tittel") or not data.get("dato"):
+        return None
+    return data
+
+
 def beregn_signatur(tittel: str, arrangor: str | None, dato_str: str) -> str:
     """Ukedagsbasert signatur (ikke eksakt dato) for eksklusjonshukommelse på tvers av uker."""
     try:

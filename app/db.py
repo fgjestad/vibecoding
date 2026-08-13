@@ -28,6 +28,10 @@ def _migrer_arrangement_tabell() -> None:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN tekst_bekreftet BOOLEAN NOT NULL DEFAULT 0"))
         if "til_dato" not in kolonner:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN til_dato TEXT"))
+        if "duplikat_gruppe" not in kolonner:
+            conn.execute(text("ALTER TABLE arrangement ADD COLUMN duplikat_gruppe TEXT"))
+        if "er_sammenslatt" not in kolonner:
+            conn.execute(text("ALTER TABLE arrangement ADD COLUMN er_sammenslatt BOOLEAN NOT NULL DEFAULT 0"))
 
 
 def _migrer_kilde_tabell() -> None:
