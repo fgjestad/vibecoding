@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import httpx
 from anthropic import Anthropic
@@ -195,14 +195,16 @@ def _er_visitgreateroslo_kilde(url: str) -> bool:
 
 
 def er_dedikert_kilde(url: str) -> bool:
-    """True hvis kilden har sin egen dedikerte hente-knapp på Innhøsting-siden (Nes
-    kommunes aktivitetskalender eller Visit Greater Oslo). Slike kilder vises i kildelisten
-    for åpenhetens skyld (så det er tydelig at de faktisk dekkes), men skal ALDRI hentes via
-    den vanlige, generiske "Kjør innhøsting"-knappen — det ville bare vært dobbelthenting av
-    noe som allerede har en bedre, direkte vei — og kan ikke deaktiveres i UI-et."""
+    """True hvis kilden hentes via en dedikert, direkte hente-vei (Nes kommunes
+    aktivitetskalender, Visit Greater Oslo, eller Kirken i Nes) i stedet for den generiske
+    AI-baserte hentingen. Slike kilder vises i kildelisten for åpenhetens skyld (så det er
+    tydelig at de faktisk dekkes), men kan ikke deaktiveres i UI-et — de hentes uansett alltid
+    via "Kjør innhøsting", som selv ruter dem til riktig dedikert hente-vei internt (se
+    hent_fra_kilde)."""
     vert = (urlparse(url).hostname or "").lower()
     nes_vert = (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower()
-    return _er_visitgreateroslo_kilde(url) or vert == nes_vert
+    kirkenines_vert = (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower()
+    return _er_visitgreateroslo_kilde(url) or vert == nes_vert or vert == kirkenines_vert
 
 
 def _er_nes_sted(sted: str) -> bool:
@@ -311,6 +313,207 @@ def _hent_fra_visitgreateroslo(kilde_url: str, forste_dag: date, siste_dag: date
             break
         side += 1
     return arrangementer
+
+
+# Kirken i Nes (Nes kirkelige fellesråd) sin kalenderside kjører DNN/Agrando-kalendermodulen
+# og har INGEN separat API å kalle. I stedet er kalenderdataene for standardvalget («Nes
+# kirkelige fellesråd», som dekker alle sokn/kirker) ferdig rendret som HTML og bakt rett inn
+# i en <script>-tag på selve siden — «var data = {"d": "<div>...</div>"}; OutputCalendar(...)»
+# — funnet ved å lese sidekilden (samme fremgangsmåte som for Nes kommune). Vi trenger derfor
+# bare det ene sidekallet: ingen egen API-URL, i motsetning til Prokom-kalenderen.
+KIRKENINES_KALENDER_URL = "https://www.kirkenines.no/Kalender"
+_KIRKENINES_DATA_RE = re.compile(r"var data = (\{.*\});\s*OutputCalendar\(data,", re.DOTALL)
+_KIRKENINES_MANEDER = {
+    "januar": 1, "februar": 2, "mars": 3, "april": 4, "mai": 5, "juni": 6,
+    "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11, "desember": 12,
+}
+
+
+class _KirkeninesKalenderParser(HTMLParser):
+    """Parser for HTML-fragmentet i "d"-feltet fra Kirken i Nes' kalenderdata (se
+    _hent_fra_kirkenines_kalender) — en flat rekke av calendar-month/calendar-item-blokker.
+    Bruker en dybde-stemplet stack for å vite hvilket felt tekstinnhold hører til, og hvilket
+    </div>/</p>/</span> som faktisk avslutter det (uten en fullverdig DOM å navigere i)."""
+
+    def __init__(self):
+        super().__init__()
+        self._depth = 0
+        self._stack: list[tuple[int, str]] = []
+        self._maned = None
+        self._dag = ""
+        self._dato = ""
+        self._events: list[dict] = []
+        self._current_event: dict | None = None
+        self.rader: list[dict] = []
+
+    def _felt(self) -> str | None:
+        return self._stack[-1][1] if self._stack else None
+
+    def handle_starttag(self, tag, attrs):
+        klass = dict(attrs).get("class", "") or ""
+        self._depth += 1
+
+        if tag == "div" and klass == "calendar-item":
+            self._dag, self._dato, self._events = "", "", []
+            self._stack.append((self._depth, "item"))
+        elif tag == "div" and klass == "calendar-month":
+            self._maned = ""
+            self._stack.append((self._depth, "maned"))
+        elif tag == "div" and klass == "calendar-day":
+            self._stack.append((self._depth, "dag"))
+        elif tag == "div" and klass == "calendar-date":
+            self._stack.append((self._depth, "dato"))
+        elif tag == "div" and klass == "event":
+            self._current_event = {"tid": "", "tittel": "", "href": None, "kategori": "", "sted": ""}
+            self._stack.append((self._depth, "event"))
+        elif tag == "div" and klass == "event-time":
+            self._stack.append((self._depth, "tid"))
+        elif tag == "p" and klass == "info-text":
+            self._stack.append((self._depth, "tittel"))
+        elif tag == "span" and klass == "calendar-label":
+            self._stack.append((self._depth, "kategori"))
+        elif tag == "span" and klass == "calendar-location":
+            self._stack.append((self._depth, "sted"))
+        elif tag == "a" and self._felt() == "tittel" and self._current_event is not None:
+            href = dict(attrs).get("href")
+            if href:
+                self._current_event["href"] = href
+
+    def handle_endtag(self, tag):
+        while self._stack and self._stack[-1][0] == self._depth:
+            _, felt = self._stack.pop()
+            if felt == "item" and self._dag and self._dato:
+                self.rader.append({"maned": self._maned, "dato": self._dato.strip(), "events": self._events})
+            elif felt == "event" and self._current_event is not None:
+                self._events.append(self._current_event)
+                self._current_event = None
+        self._depth -= 1
+
+    def handle_data(self, data):
+        felt = self._felt()
+        if felt == "maned":
+            self._maned = (self._maned or "") + data
+        elif felt == "dag":
+            self._dag += data
+        elif felt == "dato":
+            self._dato += data
+        elif felt in ("tid", "tittel", "kategori", "sted") and self._current_event is not None:
+            self._current_event[felt] += data
+
+
+def _kirkenines_bygg_arrangementer(
+    rader: list[dict], aar_start: int, kilde_url: str, forste_dag: date, siste_dag: date
+) -> list[dict]:
+    arrangementer = []
+    aar = aar_start
+    forrige_maned_nr = None
+    for rad in rader:
+        maned_nr = _KIRKENINES_MANEDER.get((rad["maned"] or "").strip().lower())
+        if maned_nr is None:
+            continue
+        if forrige_maned_nr is not None and maned_nr < forrige_maned_nr:
+            aar += 1
+        forrige_maned_nr = maned_nr
+
+        dag_del = rad["dato"].split(".")
+        if len(dag_del) < 2 or not dag_del[0].strip().isdigit():
+            continue
+        try:
+            dato_obj = date(aar, maned_nr, int(dag_del[0]))
+        except ValueError:
+            continue
+        if not (forste_dag <= dato_obj <= siste_dag):
+            continue
+
+        for hendelse in rad["events"]:
+            tittel = hendelse["tittel"].strip()
+            if not tittel:
+                continue
+
+            klokkeslett = None
+            tid_treff = re.match(r"kl\.?\s*(\d{1,2})[.:](\d{2})", hendelse["tid"].strip(), re.IGNORECASE)
+            if tid_treff:
+                klokkeslett = f"{int(tid_treff.group(1)):02d}:{tid_treff.group(2)}"
+
+            kategori = hendelse["kategori"].strip()
+            sted = hendelse["sted"].strip()
+            original_tekst = f"{tittel} – {kategori}" if kategori and kategori != tittel else tittel
+            if sted:
+                original_tekst += f", {sted}"
+            original_tekst += "."
+
+            href = hendelse.get("href")
+            kilde_url_detalj = urljoin(kilde_url, href) if href else kilde_url
+
+            arrangementer.append(
+                {
+                    "tittel": tittel,
+                    "dato": dato_obj.isoformat(),
+                    "klokkeslett": klokkeslett,
+                    "sted": sted,
+                    "arrangor": None,
+                    "original_tekst": original_tekst,
+                    "geografisk_relevans": "bekreftet",
+                    "kilde_type": "fast_kalender",
+                    "kilde_url": kilde_url_detalj,
+                    "tekst_bekreftet": True,
+                }
+            )
+    return arrangementer
+
+
+def _hent_fra_kirkenines_kalender(forste_dag: date, siste_dag: date) -> list[dict]:
+    """Henter strukturerte arrangementsdata (gudstjenester m.m.) direkte fra Kirken i Nes sin
+    kalenderside — se kommentaren over KIRKENINES_KALENDER_URL for hvordan dataene faktisk
+    ligger i sidekilden.
+
+    Dataene kommer strukturert direkte fra kildens egen database (ingen AI-omskriving), så
+    original_tekst kan trygt merkes tekst_bekreftet=True."""
+    respons = httpx.get(
+        KIRKENINES_KALENDER_URL, timeout=20.0,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+    )
+    respons.raise_for_status()
+
+    treff = _KIRKENINES_DATA_RE.search(respons.text)
+    if not treff:
+        return []
+    try:
+        data = json.loads(treff.group(1))
+    except json.JSONDecodeError:
+        return []
+    fragment = data.get("d") or ""
+
+    aar_treff = re.search(r'class="year">(\d{4})', fragment)
+    aar_start = int(aar_treff.group(1)) if aar_treff else forste_dag.year
+
+    parser = _KirkeninesKalenderParser()
+    parser.feed(fragment)
+    return _kirkenines_bygg_arrangementer(parser.rader, aar_start, KIRKENINES_KALENDER_URL, forste_dag, siste_dag)
+
+
+def diagnostiser_kirkenines_kalender(forste_dag: date, siste_dag: date) -> tuple[list[dict], str]:
+    """Som diagnostiser_nes_kalender, men for Kirken i Nes sin kalenderside. Returnerer
+    (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
+    direkte_feil = None
+    try:
+        arrangementer = _hent_fra_kirkenines_kalender(forste_dag, siste_dag)
+        if arrangementer:
+            return arrangementer, ""
+        direkte_feil = f"Siden ble hentet, men ga ingen treff for perioden {forste_dag} – {siste_dag}."
+    except httpx.HTTPError as e:
+        direkte_feil = f"Klarte ikke å koble til kirkenines.no direkte: {type(e).__name__}: {e}"
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        direkte_feil = f"Klarte å hente siden, men ikke tolke kalenderdataene i den: {type(e).__name__}: {e}"
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return [], direkte_feil or "Ukjent feil."
+
+    instruks = standard_instruks(forste_dag, siste_dag)
+    arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(KIRKENINES_KALENDER_URL, instruks)
+    if arrangementer:
+        return arrangementer, ""
+    return [], f"{direkte_feil} Reserveløsning: {fallback_diagnose}"
 
 
 # Fotballkamper for lokale idrettslag, hentet direkte fra fotball.no (NFFs egen sportslige
@@ -842,6 +1045,12 @@ def hent_fra_kilde(
         # (se diagnostiser_nes_kalender), så den generiske widget-deteksjonen lenger ned
         # finner den ikke lenger — ruter derfor direkte til den kjente fungerende API-veien.
         arrangementer, _diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
+        return arrangementer, None
+
+    if (urlparse(kilde_url).hostname or "").lower() == (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower():
+        # Kirken i Nes' kalenderside har ingen gjenkjennbar widget/API — kalenderdataene ligger
+        # ferdig rendret i en <script>-tag på siden (se diagnostiser_kirkenines_kalender).
+        arrangementer, _diagnose = diagnostiser_kirkenines_kalender(forste_dag, siste_dag)
         return arrangementer, None
 
     rå_resultat = _hent_side_raw(kilde_url)
