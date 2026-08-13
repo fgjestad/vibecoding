@@ -297,7 +297,7 @@
               <span class="tag tag-advarsel">{{ ekstra_tag }}</span>
             {% endif %}
             <div class="meta">
-              {{ a.dato }}{% if a.til_dato %} – {{ a.til_dato }}{% endif %}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
+              {{ a | datoperiode }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
               {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
             </div>
             {% if a.er_sammenslatt %}
