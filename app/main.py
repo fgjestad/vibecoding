@@ -42,6 +42,7 @@ from app.models import (
     Artikkel,
     ArtikkelAvsnitt,
     EkskludertSignatur,
+    IkkeDuplikatPar,
     Innstilling,
     Kilde,
     KildeForslag,
@@ -400,9 +401,12 @@ def hent_fotballkamper_rute(
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
     flerdags_kandidater = [a for a in eksisterende if not a.er_sammenslatt]
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper)
+        _lagre_arrangement(
+            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
+        )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
 
@@ -444,9 +448,12 @@ def hent_nes_kalender_rute(
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
     flerdags_kandidater = [a for a in eksisterende if not a.er_sammenslatt]
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper)
+        _lagre_arrangement(
+            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
+        )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
 
@@ -458,19 +465,26 @@ def hent_nes_kalender_rute(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
-def _finn_flerdagsmatch(
+def _finn_flerdagsmatcher(
     tittel: str, tekst: str, sted: str, dato_str: str, kandidater: list[Arrangement]
-) -> Arrangement | None:
-    """Finner et eksisterende arrangement som dette sannsynligvis er en direkte fortsettelse
-    av — samme sted og nesten ordrett lik tittel/tekst, og datoen er nøyaktig én dag før
-    startdatoen eller én dag etter sluttdatoen til det eksisterende. Fanger opp at enkelte
-    kilder oppgir et flerdagers arrangement (f.eks. en utstilling) som separate
+) -> list[Arrangement]:
+    """Finner ALLE eksisterende arrangementer som denne datoen sannsynligvis er en direkte
+    fortsettelse av — samme sted og nesten ordrett lik tittel/tekst, og datoen er nøyaktig én
+    dag før startdatoen eller én dag etter sluttdatoen til det eksisterende. Fanger opp at
+    enkelte kilder oppgir et flerdagers arrangement (f.eks. en utstilling) som separate
     endags-rader, én per dato, i stedet for én rad med en dato-periode.
+
+    Returnerer en LISTE (ikke bare det første treffet): datoene for et flerdagers arrangement
+    kommer ikke alltid inn i kronologisk rekkefølge (ulike kilder, eller samme kilde hentet på
+    nytt i flere runder) — en enkelt ny dato kan derfor bygge bro mellom to allerede lagrede,
+    ikke-tilstøtende deler av samme arrangement (f.eks. dag 1 og dag 3 lagret hver for seg fra
+    før, så dag 2 kommer og knytter dem sammen). Kalleren slår sammen alle treffene til én rad.
 
     Kun eksakt dags-tilstøtende datoer slås sammen (aldri med hull) — det skiller trygt en
     faktisk sammenhengende periode fra f.eks. et ukentlig gjentagende arrangement med samme
     tittel, som ikke skal vises som én lang periode."""
     ny_dato = date.fromisoformat(dato_str)
+    treff = []
     for eksisterende in kandidater:
         try:
             start = date.fromisoformat(eksisterende.dato)
@@ -485,8 +499,19 @@ def _finn_flerdagsmatch(
             continue
         if tekstlikhet(tekst, eksisterende.original_tekst) < 0.85:
             continue
-        return eksisterende
-    return None
+        treff.append(eksisterende)
+    return treff
+
+
+def _hent_ikke_duplikat_par(session: Session) -> set[frozenset[str]]:
+    """Laster hukommelsen over signatur-par brukeren har sagt fra om ikke er duplikater av
+    hverandre (se /innhosting/{id}/ikke-duplikat), som et sett av uordnede par — slik at
+    _lagre_arrangement kan hoppe over akkurat disse to ved fremtidig duplikatgruppering,
+    uansett hvilken rekkefølge de dukker opp i."""
+    return {
+        frozenset({p.signatur_a, p.signatur_b})
+        for p in session.exec(select(IkkeDuplikatPar)).all()
+    }
 
 
 def _lagre_arrangement(
@@ -497,6 +522,7 @@ def _lagre_arrangement(
     hittil_pr_dato: dict[str, list[Arrangement]],
     flerdags_kandidater: list[Arrangement],
     berorte_grupper: set[str],
+    ikke_duplikat_par: set[frozenset[str]],
 ) -> bool:
     """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret
     (eller slått sammen inn i et eksisterende flerdagers arrangement).
@@ -504,7 +530,7 @@ def _lagre_arrangement(
     Eksakte duplikater (samme tittel+dato+sted) droppes stille via sett_ider, som før.
 
     Hvis dette tydelig er samme arrangement som et allerede lagret, bare på nabodatoen (se
-    _finn_flerdagsmatch), utvides det eksisterendes dato-periode i stedet for å opprette en
+    _finn_flerdagsmatcher), utvides det eksisterendes dato-periode i stedet for å opprette en
     ny rad — slik unngås at et flerdagers arrangement vises som mange separate endags-rader.
 
     Ellers gjelder vanlig duplikatsjekk: sannsynlige duplikater (fanget opp av
@@ -530,13 +556,36 @@ def _lagre_arrangement(
         return False
     sett_ider.add(arrangement_id)
 
-    flerdagsmatch = _finn_flerdagsmatch(tittel, original_tekst, sted, dato_str, flerdags_kandidater)
-    if flerdagsmatch:
-        if date.fromisoformat(dato_str) < date.fromisoformat(flerdagsmatch.dato):
-            flerdagsmatch.dato = dato_str
-        else:
-            flerdagsmatch.til_dato = dato_str
-        session.add(flerdagsmatch)
+    flerdagsmatcher = _finn_flerdagsmatcher(tittel, original_tekst, sted, dato_str, flerdags_kandidater)
+    if flerdagsmatcher:
+        # Slå sammen den nye datoen og ALLE treffene til én sammenhengende periode — ikke bare
+        # utvid ett enkelt treff. Datoene kan komme i vilkårlig rekkefølge (se
+        # _finn_flerdagsmatcher), så vi tar min/maks over alt i stedet for å anta at "det ene
+        # treffet" allerede dekker hele den riktige perioden.
+        alle_datoer = [dato_str]
+        for annen in flerdagsmatcher:
+            alle_datoer.append(annen.dato)
+            alle_datoer.append(annen.til_dato or annen.dato)
+
+        hoved = flerdagsmatcher[0]
+        hoved.dato = min(alle_datoer)
+        hoved.til_dato = max(alle_datoer)
+        session.add(hoved)
+
+        for annen in flerdagsmatcher[1:]:
+            if annen in flerdags_kandidater:
+                flerdags_kandidater.remove(annen)
+            samme_dato_annen = hittil_pr_dato.get(annen.dato)
+            if samme_dato_annen and annen in samme_dato_annen:
+                samme_dato_annen.remove(annen)
+            if annen in session.new:
+                # Lagt til (session.add) tidligere i SAMME kjøring, men ennå ikke skrevet til
+                # databasen (ingen commit har skjedd midt i løkken) — session.delete() krever
+                # en persistert rad, så en slik rad må i stedet bare fjernes fra sesjonen.
+                session.expunge(annen)
+            else:
+                session.delete(annen)
+
         return True
 
     signatur = beregn_signatur(tittel, data.get("arrangor"), dato_str)
@@ -547,6 +596,7 @@ def _lagre_arrangement(
     matchende = [
         annen for annen in samme_dato
         if er_tittel_duplikat(tittel, klokkeslett, annen.tittel, annen.klokkeslett)
+        and frozenset({signatur, annen.signatur}) not in ikke_duplikat_par
     ]
 
     duplikat_gruppe = None
@@ -827,6 +877,7 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
@@ -870,7 +921,8 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                         1
                         for a in rå
                         if _lagre_arrangement(
-                            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper
+                            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
+                            berorte_grupper, ikke_duplikat_par,
                         )
                     )
                     kilde.automatisk_prioritet = float(antall)
@@ -921,6 +973,43 @@ def slaa_sammen_duplikater(
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     berorte_grupper = _duplikatgrupper_uten_sammenslaing(session)
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/innhosting/{arrangement_id}/ikke-duplikat")
+def marker_ikke_duplikat(
+    arrangement_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    """Retter opp en feilaktig sammenslåing: sletter den sammenslåtte AI-oppføringen, viser de
+    rå kildefunnene som egne kort igjen (alle forhåndsvalgt), og husker paret av signaturer som
+    "ikke duplikater" (se IkkeDuplikatPar) slik at de aldri slås sammen igjen i en senere
+    innhøsting, selv om er_tittel_duplikat fortsatt ville fanget dem opp som en fuzzy-match."""
+    sammenslatt = session.get(Arrangement, arrangement_id)
+    if not sammenslatt or not sammenslatt.er_sammenslatt or not sammenslatt.duplikat_gruppe:
+        return RedirectResponse(url="/innhosting", status_code=303)
+
+    medlemmer = session.exec(
+        select(Arrangement).where(
+            Arrangement.duplikat_gruppe == sammenslatt.duplikat_gruppe,
+            Arrangement.er_sammenslatt == False,  # noqa: E712
+        )
+    ).all()
+
+    signaturer = [m.signatur for m in medlemmer]
+    for i in range(len(signaturer)):
+        for j in range(i + 1, len(signaturer)):
+            if frozenset({signaturer[i], signaturer[j]}) not in _hent_ikke_duplikat_par(session):
+                session.add(IkkeDuplikatPar(signatur_a=signaturer[i], signatur_b=signaturer[j]))
+
+    for medlem in medlemmer:
+        medlem.duplikat_gruppe = None
+        medlem.valgt = True
+        session.add(medlem)
+
+    session.delete(sammenslatt)
+    session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
@@ -1054,9 +1143,12 @@ async def last_opp_fil(
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
     flerdags_kandidater = [a for a in eksisterende if not a.er_sammenslatt]
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper)
+        _lagre_arrangement(
+            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
+        )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return RedirectResponse(url="/innhosting", status_code=303)
@@ -1091,9 +1183,12 @@ async def lim_inn_tekst(
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
     flerdags_kandidater = [a for a in eksisterende if not a.er_sammenslatt]
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
     for a in rå:
-        _lagre_arrangement(session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper)
+        _lagre_arrangement(
+            session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
+        )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return RedirectResponse(url="/innhosting", status_code=303)
