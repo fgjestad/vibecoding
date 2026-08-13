@@ -751,6 +751,26 @@ def _oppdater_sammenslatte_grupper(
         except ValueError:
             continue
 
+        # Claude får kun ÉN dato per medlem (se data_liste over) og kan derfor ikke selv
+        # bevare flerdags-/gjentakende datoer i det sammenslåtte svaret sitt. Bygg i stedet
+        # den fullstendige datolista fra de rå medlemmenes egne dato/til_dato/flere_datoer
+        # (samme fremgangsmåte som _finn_gjentakende_arrangementer/_lagre_arrangement), og la
+        # den overstyre AI-svarets enkeltdato.
+        alle_datoer: set[str] = set()
+        for m in medlemmer:
+            alle_datoer.add(m.dato)
+            if m.til_dato:
+                alle_datoer.add(m.til_dato)
+            if m.flere_datoer:
+                try:
+                    alle_datoer.update(json.loads(m.flere_datoer))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        sorterte_datoer = sorted(alle_datoer)
+        dato_str = sorterte_datoer[0]
+        til_dato = sorterte_datoer[-1] if len(sorterte_datoer) > 1 else None
+        flere_datoer_json = json.dumps(sorterte_datoer) if len(sorterte_datoer) > 1 else None
+
         beste_relevans = min(
             (m.geografisk_relevans for m in medlemmer),
             key=lambda r: _GEOGRAFISK_RANGERING.get(r, 3),
@@ -767,6 +787,8 @@ def _oppdater_sammenslatte_grupper(
         if eksisterende_sammenslatt:
             eksisterende_sammenslatt.tittel = tittel
             eksisterende_sammenslatt.dato = dato_str
+            eksisterende_sammenslatt.til_dato = til_dato
+            eksisterende_sammenslatt.flere_datoer = flere_datoer_json
             eksisterende_sammenslatt.klokkeslett = sammenslatt.get("klokkeslett")
             eksisterende_sammenslatt.sted = str(sammenslatt.get("sted") or "")
             eksisterende_sammenslatt.arrangor = sammenslatt.get("arrangor")
@@ -781,6 +803,8 @@ def _oppdater_sammenslatte_grupper(
                     arrangement_id=f"sammenslatt-{gruppe_id}",
                     tittel=tittel,
                     dato=dato_str,
+                    til_dato=til_dato,
+                    flere_datoer=flere_datoer_json,
                     klokkeslett=sammenslatt.get("klokkeslett"),
                     sted=str(sammenslatt.get("sted") or ""),
                     arrangor=sammenslatt.get("arrangor"),
