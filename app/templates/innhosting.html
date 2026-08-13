@@ -28,6 +28,60 @@
       <button type="submit">Lagre periode</button>
     </form>
 
+    {% if rolle == 'admin' %}
+      <details class="skjema-kort" style="margin-bottom: 1.5rem;">
+        <summary>
+          Automatisk innhøsting
+          {% if auto_innhosting_aktiv %}
+            <span class="tag" style="background: #dcecdd; color: var(--ok);">aktiv</span>
+          {% else %}
+            <span class="tag">av</span>
+          {% endif %}
+        </summary>
+        <p class="undertittel" style="margin-top: 0.5rem;">
+          Kjør "Kjør innhøsting" automatisk på et fast tidsskjema, med standardinstruksen, uten
+          at noen trenger å klikke knappen selv.
+        </p>
+        <form method="post" action="/innstillinger/auto-innhosting" style="margin-top: 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" name="aktiv" value="true" {% if auto_innhosting_aktiv %}checked{% endif %} />
+            Aktiver automatisk innhøsting
+          </label>
+          <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem;">
+            <label>Frekvens
+              <select name="frekvens" id="auto-frekvens">
+                <option value="daglig" {% if auto_innhosting_frekvens != 'ukentlig' %}selected{% endif %}>Daglig</option>
+                <option value="ukentlig" {% if auto_innhosting_frekvens == 'ukentlig' %}selected{% endif %}>Ukentlig</option>
+              </select>
+            </label>
+            <label id="auto-ukedag-wrapper">Ukedag
+              <select name="ukedag">
+                {% set ukedager = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"] %}
+                {% for navn in ukedager %}
+                  <option value="{{ loop.index0 }}" {% if auto_innhosting_ukedag == loop.index0 %}selected{% endif %}>{{ navn }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Klokkeslett
+              <input type="time" name="klokkeslett" value="{{ auto_innhosting_klokkeslett }}" />
+            </label>
+          </div>
+          <button type="submit" class="primær" style="margin-top: 0.75rem;">Lagre autojobb</button>
+        </form>
+        <script>
+          (function () {
+            var frekvensValg = document.getElementById("auto-frekvens");
+            var ukedagFelt = document.getElementById("auto-ukedag-wrapper");
+            function oppdaterSynlighet() {
+              ukedagFelt.style.display = frekvensValg.value === "ukentlig" ? "" : "none";
+            }
+            frekvensValg.addEventListener("change", oppdaterSynlighet);
+            oppdaterSynlighet();
+          })();
+        </script>
+      </details>
+    {% endif %}
+
     <div class="kort" style="border-color: var(--accent); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
       <div>
         <strong style="font-size: 1.2rem;">{{ antall_fra_nes_kalender }}</strong>
@@ -275,6 +329,9 @@
       <h2>Utkast ({{ grupper|length }})</h2>
       {% if grupper %}
         <div style="display: flex; gap: 0.5rem;">
+          <form method="post" action="/innhosting/slaa-sammen-duplikater">
+            <button type="submit">Slå sammen duplikater</button>
+          </form>
           <form
             method="post"
             action="/innhosting/slett-gamle"
