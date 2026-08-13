@@ -2,6 +2,7 @@ import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -48,12 +49,26 @@ from app.models import (
     KildeForslag,
 )
 
+OSLO_TZ = ZoneInfo("Europe/Oslo")
+
+
+def oslo_tid(verdi: datetime, format: str = "%d.%m.%Y kl. %H:%M") -> str:
+    """Formaterer et tidspunkt i norsk lokal tid (Europe/Oslo, håndterer sommer-/vintertid
+    automatisk). Alle opprettet_at-felt lagres som naiv UTC (datetime.utcnow()), så en rå
+    .strftime() på dem direkte ville vist UTC/GMT-klokkeslett i UI-et — feil med 1-2 timer for
+    norske brukere avhengig av årstid."""
+    if verdi.tzinfo is None:
+        verdi = verdi.replace(tzinfo=ZoneInfo("UTC"))
+    return verdi.astimezone(OSLO_TZ).strftime(format)
+
+
 app = FastAPI(title="Raumnes kalendergenerator")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["domene"] = vertsnavn
 templates.env.filters["dedikert"] = er_dedikert_kilde
 templates.env.tests["dedikert"] = er_dedikert_kilde
+templates.env.filters["oslo_tid"] = oslo_tid
 
 MAKS_SAMTIDIGE_KILDER = 5
 
