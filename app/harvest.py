@@ -982,6 +982,34 @@ Svar til slutt KUN med et gyldig JSON-array, ingen tekst før eller etter. Hvis 
 noen relevante arrangementer, svar med et tomt array: []"""
 
 
+def instruks_for_manuell_kilde() -> str:
+    """Som standard_instruks, men UTEN periodebegrensning — brukes for de vedvarende manuelle
+    kildene (skjermdump/PDF/limt inn tekst, se modellen ManuellKilde). Disse skal identifisere
+    ALLE arrangementer i dokumentet uansett dato, ikke bare de som tilfeldigvis er innenfor et
+    gjeldende datovindu — datofiltrering mot perioden gjøres i etterkant i kode (se
+    main._filtrer_til_periode), slik at et arrangement som først lå utenfor vinduet fanges opp
+    automatisk når vinduet senere dekker datoen dets, i stedet for å gå tapt for godt. Brukes
+    også til å beregne kildens utløpsdato (seneste arrangement-dato funnet)."""
+    return f"""For hvert arrangement som er omtalt, UANSETT DATO, hent ut:
+- "tittel": kort tittel på arrangementet
+- "dato": dato i format YYYY-MM-DD
+- "klokkeslett": klokkeslett hvis oppgitt (f.eks. "18:00"), ellers null
+- "sted": stedsnavn/adresse, så spesifikt som mulig
+- "arrangor": arrangør/avsender hvis oppgitt, ellers null
+- "original_tekst": teksten som beskriver arrangementet, KOPIERT ORDRETT fra kilden (ikke \
+omskrevet, ikke forkortet, ikke oppsummert — den skal være identisk med teksten slik den står \
+på kilden, tegn for tegn)
+- "geografisk_relevans": "bekreftet" hvis stedet tydelig er i {STED_BESKRIVELSE}, \
+"sannsynlig" hvis uklart men trolig lokalt, "usikker" hvis reelt i tvil
+
+Ikke ta med arrangementer som tydelig skjer utenfor Nes kommune. IKKE begrens til noen bestemt \
+tidsperiode — ta med alle arrangementer som er omtalt i dokumentet, uansett hvor langt fram \
+eller tilbake i tid de er.
+
+Svar til slutt KUN med et gyldig JSON-array, ingen tekst før eller etter. Hvis du ikke finner \
+noen relevante arrangementer, svar med et tomt array: []"""
+
+
 def _hent_fra_kilde_via_sidetekst(
     kilde_url: str,
     sidetekst: str,

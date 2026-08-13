@@ -32,6 +32,7 @@ from app.harvest import (
     hent_fra_pdf,
     hent_fra_tekst,
     hent_mer_info,
+    instruks_for_manuell_kilde,
     normaliser_tekst,
     normaliser_url_for_dedup,
     standard_instruks,
@@ -48,6 +49,7 @@ from app.models import (
     Innstilling,
     Kilde,
     KildeForslag,
+    ManuellKilde,
 )
 
 OSLO_TZ = ZoneInfo("Europe/Oslo")
@@ -937,12 +939,16 @@ def _innhosting_kontekst(
     )
 
     grupper = _sorter_grupper(_grupper_for_visning(arrangementer))
+    manuelle_kilder = sorted(
+        session.exec(select(ManuellKilde)).all(), key=lambda m: m.opprettet_at, reverse=True
+    )
 
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
     return {
         "request": request,
         "grupper": grupper,
         "antall_fra_nes_kalender": antall_fra_nes_kalender,
+        "manuelle_kilder": manuelle_kilder,
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "antall_dager": innstilling.antall_dager,
@@ -965,6 +971,82 @@ def innhosting_side(
     return templates.TemplateResponse(
         "innhosting.html", _innhosting_kontekst(request, session, rolle=rolle)
     )
+
+
+def _beregn_utlopsdato(arrangementer: list[dict]) -> str | None:
+    """Seneste dato blant arrangementene som ble funnet (over HELE dokumentet, ikke bare de
+    som falt innenfor et gjeldende datovindu) — brukes som utløpsdato på en ManuellKilde: når
+    denne datoen er passert finnes det ingenting mer å hente fra kilden, og den deaktiveres."""
+    datoer = [str(a.get("dato") or "") for a in arrangementer]
+    datoer = [d for d in datoer if d]
+    return max(datoer) if datoer else None
+
+
+def _filtrer_til_periode(arrangementer: list[dict], forste_dag: date, siste_dag: date) -> list[dict]:
+    """Filtrerer en ubegrenset arrangementliste (se harvest.instruks_for_manuell_kilde) ned til
+    de som faller i den gjeldende innhøstingsperioden, slik en vanlig periodebegrenset kilde
+    ville gjort — resten forblir bevart i den lagrede ManuellKilde-en for en senere kjøring."""
+    fra, til = forste_dag.isoformat(), siste_dag.isoformat()
+    return [a for a in arrangementer if fra <= str(a.get("dato") or "") <= til]
+
+
+def _kjor_manuelle_kilder(
+    session: Session,
+    forste_dag: date,
+    siste_dag: date,
+    sett_ider: set[str],
+    ekskluderte_signaturer: set[str],
+    hittil_pr_dato: dict[str, list[Arrangement]],
+    flerdags_kandidater: list[Arrangement],
+    berorte_grupper: set[str],
+    ikke_duplikat_par: set[frozenset[str]],
+) -> list[str]:
+    """Kjører alle aktive, ikke-utløpte manuelle kilder (se modellen ManuellKilde) på nytt for
+    hver innhøsting, filtrert mot gjeldende periode — akkurat som URL-kilder allerede fungerer,
+    bare at "master" her er det lagrede innholdet (skjermdump/PDF/limt inn tekst) i stedet for
+    en nettside. Utpakkingen selv er ubegrenset i tid (instruks_for_manuell_kilde), slik at
+    arrangementer som lå utenfor et tidligere datovindu fanges opp automatisk når vinduet
+    senere dekker datoen deres, i stedet for å gå tapt for godt. Oppdaterer utløpsdatoen ved
+    hver kjøring og deaktiverer kilden automatisk når siste kjente arrangement-dato er passert.
+    Returnerer feilmeldinger for kilder som feilet."""
+    i_dag = date.today().isoformat()
+    feil: list[str] = []
+    manuelle = session.exec(select(ManuellKilde).where(ManuellKilde.aktiv == True)).all()  # noqa: E712
+    for mk in manuelle:
+        if mk.utlopsdato and mk.utlopsdato < i_dag:
+            mk.aktiv = False
+            session.add(mk)
+            continue
+
+        try:
+            instruks_uten_periode = instruks_for_manuell_kilde()
+            if mk.kilde_type == "skjermdump":
+                rå = hent_fra_bilde(
+                    mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
+                    instruks=instruks_uten_periode,
+                )
+            elif mk.kilde_type == "pdf":
+                rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
+            else:
+                rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
+        except Exception as e:
+            feil.append(f"{mk.navn} ({e})")
+            continue
+
+        mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
+        mk.sist_kjort_at = datetime.utcnow()
+        if mk.utlopsdato and mk.utlopsdato < i_dag:
+            mk.aktiv = False
+        session.add(mk)
+        session.commit()
+
+        for a in _filtrer_til_periode(rå, forste_dag, siste_dag):
+            _lagre_arrangement(
+                session, a, sett_ider, ekskluderte_signaturer, hittil_pr_dato, flerdags_kandidater,
+                berorte_grupper, ikke_duplikat_par,
+            )
+        session.commit()
+    return feil
 
 
 def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
@@ -1044,6 +1126,12 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                         session.add(frisk_kilde)
                         session.commit()
 
+    feil_kilder.extend(
+        _kjor_manuelle_kilder(
+            session, forste_dag, siste_dag, sett_ider, ekskluderte, hittil_pr_dato,
+            flerdags_kandidater, berorte_grupper, ikke_duplikat_par,
+        )
+    )
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return feil_kilder
 
@@ -1214,22 +1302,26 @@ async def last_opp_fil(
     innhold = await fil.read()
 
     STOTTEDE_BILDETYPER = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    er_pdf = fil.content_type == "application/pdf"
+    er_bilde = fil.content_type in STOTTEDE_BILDETYPER
+    if not er_pdf and not er_bilde:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(
+                request,
+                session,
+                f"Filtypen '{fil.content_type}' støttes ikke. Bruk JPEG, PNG, WEBP, "
+                "GIF eller PDF.",
+                rolle,
+            ),
+        )
+
+    instruks_uten_periode = instruks_for_manuell_kilde()
     try:
-        if fil.content_type == "application/pdf":
-            rå = hent_fra_pdf(innhold, forste_dag, siste_dag)
-        elif fil.content_type in STOTTEDE_BILDETYPER:
-            rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag)
+        if er_pdf:
+            rå = hent_fra_pdf(innhold, forste_dag, siste_dag, instruks=instruks_uten_periode)
         else:
-            return templates.TemplateResponse(
-                "innhosting.html",
-                _innhosting_kontekst(
-                    request,
-                    session,
-                    f"Filtypen '{fil.content_type}' støttes ikke. Bruk JPEG, PNG, WEBP, "
-                    "GIF eller PDF.",
-                    rolle,
-                ),
-            )
+            rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag, instruks=instruks_uten_periode)
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
@@ -1238,6 +1330,21 @@ async def last_opp_fil(
             ),
         )
 
+    # Lagres som en vedvarende manuell kilde (se ManuellKilde) i stedet for å bare brukes til
+    # denne ene innhøstingen — slik at den kan gjenbrukes senere i stedet for å måtte lastes
+    # opp på nytt, og slik at arrangementer utenfor gjeldende datovindu ikke går tapt (se
+    # _kjor_manuelle_kilder).
+    session.add(
+        ManuellKilde(
+            kilde_type="pdf" if er_pdf else "skjermdump",
+            navn=fil.filename or "Opplastet fil",
+            innhold_bytes=innhold,
+            innhold_media_type=None if er_pdf else fil.content_type,
+            utlopsdato=_beregn_utlopsdato(rå),
+            sist_kjort_at=datetime.utcnow(),
+        )
+    )
+
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
     hittil_pr_dato = _hittil_pr_dato(eksisterende)
@@ -1245,7 +1352,7 @@ async def last_opp_fil(
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
-    for a in rå:
+    for a in _filtrer_til_periode(rå, forste_dag, siste_dag):
         _lagre_arrangement(
             session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
         )
@@ -1271,12 +1378,22 @@ async def lim_inn_tekst(
         )
 
     try:
-        rå = hent_fra_tekst(tekst, forste_dag, siste_dag)
+        rå = hent_fra_tekst(tekst, forste_dag, siste_dag, instruks=instruks_for_manuell_kilde())
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
             _innhosting_kontekst(request, session, f"Kunne ikke tolke den limte inn teksten: {e}", rolle),
         )
+
+    session.add(
+        ManuellKilde(
+            kilde_type="limt_inn_tekst",
+            navn=(tekst.strip()[:60] + "…") if len(tekst.strip()) > 60 else tekst.strip(),
+            innhold_tekst=tekst,
+            utlopsdato=_beregn_utlopsdato(rå),
+            sist_kjort_at=datetime.utcnow(),
+        )
+    )
 
     eksisterende = session.exec(select(Arrangement)).all()
     sett_ider = {a.arrangement_id for a in eksisterende}
@@ -1285,12 +1402,53 @@ async def lim_inn_tekst(
     ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
     ikke_duplikat_par = _hent_ikke_duplikat_par(session)
     berorte_grupper: set[str] = set()
-    for a in rå:
+    for a in _filtrer_til_periode(rå, forste_dag, siste_dag):
         _lagre_arrangement(
             session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater, berorte_grupper, ikke_duplikat_par
         )
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/manuelle-kilder/{manuell_kilde_id}/aktiver")
+def aktiver_manuell_kilde(
+    manuell_kilde_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if mk:
+        mk.aktiv = True
+        session.add(mk)
+        session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/manuelle-kilder/{manuell_kilde_id}/deaktiver")
+def deaktiver_manuell_kilde(
+    manuell_kilde_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if mk:
+        mk.aktiv = False
+        session.add(mk)
+        session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/manuelle-kilder/{manuell_kilde_id}/slett")
+def slett_manuell_kilde(
+    manuell_kilde_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if mk:
+        session.delete(mk)
+        session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
 

@@ -108,6 +108,31 @@ class IkkeDuplikatPar(SQLModel, table=True):
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ManuellKilde(SQLModel, table=True):
+    """Vedvarende manuell kilde: en opplastet skjermdump/PDF eller limt inn tekst, lagret slik
+    at den kan gjenbrukes over tid — i motsetning til en engangs-opplasting forsvinner ikke
+    innholdet når utkastet tømmes, og arrangementer som først lå utenfor gjeldende datovindu
+    går ikke tapt for godt. Kjøres på nytt (gjenoppdages) ved hver "Kjør innhøsting", filtrert
+    mot gjeldende periode — akkurat som URL-kilder allerede fungerer, bare at "master" her er
+    det lagrede innholdet i stedet for en nettside. Se harvest.instruks_for_manuell_kilde og
+    main._kjor_manuelle_kilder."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    kilde_type: str  # skjermdump | pdf | limt_inn_tekst
+    navn: str = Field(description="Kort merkelapp, satt automatisk fra filnavn eller tidspunkt")
+    innhold_bytes: Optional[bytes] = Field(default=None, description="Rådata for skjermdump/PDF")
+    innhold_media_type: Optional[str] = Field(default=None, description="Kun for skjermdump, f.eks. image/png")
+    innhold_tekst: Optional[str] = Field(default=None, description="Rå tekst, kun for limt inn tekst")
+    utlopsdato: Optional[str] = Field(
+        default=None,
+        description="YYYY-MM-DD — seneste dato blant arrangementene funnet ved siste "
+        "utpakking. Kilden deaktiveres automatisk når denne datoen er passert.",
+    )
+    aktiv: bool = Field(default=True)
+    opprettet_at: datetime = Field(default_factory=datetime.utcnow)
+    sist_kjort_at: Optional[datetime] = Field(default=None)
+
+
 class Artikkel(SQLModel, table=True):
     """Generert artikkelutkast for hele perioden (jobb 3). Erstattes helt ved hver nye kjøring."""
 
