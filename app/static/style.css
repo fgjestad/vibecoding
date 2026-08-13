@@ -157,6 +157,26 @@ form.inline {
   font-style: italic;
 }
 
+.tjeneste-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
+.tjeneste-header img {
+  height: 28px;
+  width: auto;
+  display: block;
+}
+
+.tjeneste-header span {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
 .meny {
   margin-bottom: 1.5rem;
   font-size: 0.95rem;
