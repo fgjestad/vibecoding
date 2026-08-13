@@ -13,7 +13,8 @@
         <div><a href="{{ k.url }}" target="_blank" rel="noopener">{{ k.url }}</a></div>
         {% if k.url | dedikert %}
           <div class="meta">
-            Hentes ikke av "Kjør innhøsting" — har sin egen knapp på Innhøsting-siden.
+            Hentes automatisk av "Kjør innhøsting" (via sin egen, dedikerte hente-vei) —
+            har i tillegg en egen knapp på Innhøsting-siden for å hente kun denne kilden.
           </div>
         {% else %}
           <div class="meta">
