@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
@@ -1419,6 +1419,24 @@ async def lim_inn_tekst(
     session.commit()
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.get("/manuelle-kilder/{manuell_kilde_id}/innhold")
+def manuell_kilde_innhold(
+    manuell_kilde_id: int,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    """Serverer det rå opplastede innholdet (skjermdump/PDF) for en manuell kilde uendret —
+    brukes til forhåndsvisning (thumbnail) og til å vise/åpne originalversjonen i Manuelle
+    kilder-lista på Innhøsting-siden. Gjelder kun skjermdump/PDF; limt inn tekst vises direkte
+    i HTML-en (se innhosting.html) siden den allerede er tekst, ikke binærdata som må
+    serveres separat."""
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if not mk or mk.innhold_bytes is None:
+        raise HTTPException(status_code=404, detail="Fant ikke opplastet innhold for denne kilden.")
+    media_type = mk.innhold_media_type if mk.kilde_type == "skjermdump" else "application/pdf"
+    return Response(content=mk.innhold_bytes, media_type=media_type or "application/octet-stream")
 
 
 @app.post("/manuelle-kilder/{manuell_kilde_id}/aktiver")
