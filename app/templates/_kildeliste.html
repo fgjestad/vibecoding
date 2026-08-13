@@ -3,17 +3,26 @@
     <div class="kilde-rad">
       <div class="kilde-info">
         <strong>{{ k.navn }}</strong>
+        {% if k.url | dedikert %}
+          <span class="tag" style="background: #dcecdd; color: var(--ok);">Dedikert integrasjon</span>
+        {% endif %}
         {% if not k.aktiv %}<span class="tag">inaktiv</span>{% endif %}
         {% if k.antall_feilede_hentinger > 0 %}
           <span class="tag tag-advarsel">{{ k.antall_feilede_hentinger }} feilet</span>
         {% endif %}
         <div><a href="{{ k.url }}" target="_blank" rel="noopener">{{ k.url }}</a></div>
-        <div class="meta">
-          Automatisk prioritet: {{ "%.1f"|format(k.automatisk_prioritet) }} ·
-          Samlet: {{ "%.1f"|format(k.samlet_sortering) }} ·
-          Hentet uten feil: {{ k.antall_vellykkede_hentinger }} ·
-          Feilet: {{ k.antall_feilede_hentinger }}
-        </div>
+        {% if k.url | dedikert %}
+          <div class="meta">
+            Hentes ikke av "Kjør innhøsting" — har sin egen knapp på Innhøsting-siden.
+          </div>
+        {% else %}
+          <div class="meta">
+            Automatisk prioritet: {{ "%.1f"|format(k.automatisk_prioritet) }} ·
+            Samlet: {{ "%.1f"|format(k.samlet_sortering) }} ·
+            Hentet uten feil: {{ k.antall_vellykkede_hentinger }} ·
+            Feilet: {{ k.antall_feilede_hentinger }}
+          </div>
+        {% endif %}
       </div>
       <div class="handlinger">
         <form
@@ -46,7 +55,9 @@
             <button type="submit" class="primær" style="margin-top: 0.75rem;">Lagre</button>
           </form>
         </details>
-        {% if k.aktiv %}
+        {% if k.url | dedikert %}
+          {# Dedikerte kilder kan ikke deaktiveres — de hentes uansett ikke via denne løypa. #}
+        {% elif k.aktiv %}
           <form hx-post="/kilder/{{ k.id }}/deaktiver" hx-target="#kilde-liste" hx-swap="outerHTML">
             <button type="submit">Deaktiver</button>
           </form>
@@ -67,11 +78,11 @@
   {% if not kilder %}
     <p class="tom">Ingen kilder lagt til ennå. Legg til en under, eller bruk "oppdag nye kilder".</p>
   {% endif %}
-  {% for k in kilder if k.aktiv %}
+  {% for k in kilder if k.aktiv or (k.url is dedikert) %}
     {{ kildekort(k) }}
   {% endfor %}
 
-  {% set inaktive_kilder = kilder|rejectattr("aktiv")|list %}
+  {% set inaktive_kilder = kilder|rejectattr("aktiv")|rejectattr("url", "dedikert")|list %}
   {% if inaktive_kilder %}
     <details style="margin-top: 1rem;">
       <summary>Deaktiverte kilder ({{ inaktive_kilder|length }})</summary>
