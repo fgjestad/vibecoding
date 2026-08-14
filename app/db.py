@@ -69,6 +69,7 @@ def _migrer_artikkel_tabell() -> None:
     utdatert = (
         "tittel" not in kolonner
         or "ingress" not in kolonner
+        or "token_brukt" not in kolonner
         or "mulig_kopiert" in avsnitt_kolonner
         or (avsnitt_kolonner and "kategori" not in avsnitt_kolonner)
         or (avsnitt_kolonner and "kilde_url" not in avsnitt_kolonner)

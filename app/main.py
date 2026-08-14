@@ -1558,6 +1558,8 @@ def _artikler_kontekst(
             "tittel": eldre.tittel,
             "ingress": eldre.ingress,
             "opprettet_at": eldre.opprettet_at,
+            "token_brukt": eldre.token_brukt,
+            "token_maks": eldre.token_maks,
             "avsnitt": _avsnitt_for_artikkel(session, eldre),
         }
         for eldre in alle_artikler[1:]
@@ -1642,7 +1644,12 @@ def generer_artikkel_rute(
             _artikler_kontekst(request, session, f"Fikk ikke generert noen artikkel. {diagnose}", rolle),
         )
 
-    ny_artikkel = Artikkel(tittel=resultat["tittel"], ingress=resultat["ingress"])
+    ny_artikkel = Artikkel(
+        tittel=resultat["tittel"],
+        ingress=resultat["ingress"],
+        token_brukt=resultat.get("token_brukt"),
+        token_maks=resultat.get("token_maks"),
+    )
     session.add(ny_artikkel)
     session.commit()
     session.refresh(ny_artikkel)

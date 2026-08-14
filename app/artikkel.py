@@ -12,6 +12,8 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 MINSTE_KATEGORI_STORRELSE = 3
 
+MAKS_TOKENS_ARTIKKEL = 8192
+
 # Brukes med output_config.format i generer_hel_artikkel for å garantere at Claude sitt svar
 # er syntaktisk gyldig JSON i nøyaktig denne formen — API-en validerer og håndhever formen
 # server-side, i stedet for at koden må lete etter et JSON-objekt i fritekst og håpe at
@@ -200,7 +202,7 @@ For hvert avsnitt gjelder:
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=8192,
+            max_tokens=MAKS_TOKENS_ARTIKKEL,
             output_config={
                 "effort": "medium",
                 "format": {"type": "json_schema", "schema": _ARTIKKEL_SKJEMA},
@@ -293,7 +295,17 @@ For hvert avsnitt gjelder:
         key=lambda rad: (_kategori_prioritet(rad["kategori"]), kategori_forste_posisjon[rad["kategori"]])
     )
 
-    return {"tittel": tittel, "ingress": ingress, "avsnitt": avsnitt}, ""
+    return {
+        "tittel": tittel,
+        "ingress": ingress,
+        "avsnitt": avsnitt,
+        # Faktisk antall output-tokens Claude brukte (inkl. egen resonnering), av grensen
+        # MAKS_TOKENS_ARTIKKEL — vises i UI-et som andel, slik at brukeren kan vurdere om
+        # perioden (antall dager/arrangementer) bør reduseres for å unngå at fremtidige
+        # genereringer kuttes av (se stop_reason == "max_tokens" over).
+        "token_brukt": response.usage.output_tokens,
+        "token_maks": MAKS_TOKENS_ARTIKKEL,
+    }, ""
 
 
 def skriv_om_ett_avsnitt(a: Arrangement, instruks: str | None = None) -> str | None:

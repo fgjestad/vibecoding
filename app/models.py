@@ -139,6 +139,19 @@ class Artikkel(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     tittel: str
     ingress: str
+    token_brukt: Optional[int] = Field(
+        default=None,
+        description="Faktisk antall output-tokens (inkl. Claudes egen resonnering) brukt til "
+        "å generere denne artikkelen — vises som andel av token_maks i UI-et, slik at "
+        "brukeren kan se hvor nær Claude var grensen (og evt. redusere antall dager i "
+        "perioden hvis den er nær 100 %).",
+    )
+    token_maks: Optional[int] = Field(
+        default=None,
+        description="max_tokens-grensen som gjaldt for API-kallet ved denne genereringen — "
+        "lagres per artikkel (ikke bare som en global konstant) slik at andelen fortsatt "
+        "kan vises riktig for eldre artikler selv om grensen i koden endres senere.",
+    )
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
 
 
