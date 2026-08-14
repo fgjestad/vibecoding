@@ -85,6 +85,13 @@
           <div class="kort">
             <p class="meta" style="margin: 0 0 0.5rem;">
               Generert {{ artikkel.opprettet_at | oslo_tid }}
+              {% if artikkel.token_brukt and artikkel.token_maks %}
+                · Brukte {{ artikkel.token_brukt }} av {{ artikkel.token_maks }} tokens
+                ({{ (100 * artikkel.token_brukt / artikkel.token_maks) | round(1) }} %)
+                {% if artikkel.token_brukt / artikkel.token_maks > 0.9 %}
+                  <span class="tag tag-advarsel">nær grensen — vurder å redusere antall dager</span>
+                {% endif %}
+              {% endif %}
             </p>
             <label>Tittel
               <input
@@ -207,6 +214,15 @@
         <details class="kort" style="margin-top: 0.75rem;">
           <summary>{{ eldre.opprettet_at | oslo_tid("%d.%m.%Y %H:%M") }} — {{ eldre.tittel }}</summary>
           <div id="arkivert-{{ eldre.id }}" style="margin-top: 0.75rem;">
+            {% if eldre.token_brukt and eldre.token_maks %}
+              <p class="meta" style="margin: 0 0 0.5rem;">
+                Brukte {{ eldre.token_brukt }} av {{ eldre.token_maks }} tokens
+                ({{ (100 * eldre.token_brukt / eldre.token_maks) | round(1) }} %)
+                {% if eldre.token_brukt / eldre.token_maks > 0.9 %}
+                  <span class="tag tag-advarsel">nær grensen</span>
+                {% endif %}
+              </p>
+            {% endif %}
             <label>Tittel
               <input
                 type="text"
