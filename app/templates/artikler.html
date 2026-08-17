@@ -21,9 +21,8 @@
 
     <h1>Artikkelgenerering</h1>
     <p class="undertittel">
-      Skriver én samlet artikkel for perioden {{ forste_dag.strftime("%d.%m.%Y") }} –
-      {{ siste_dag.strftime("%d.%m.%Y") }} (lengden på perioden endres på Innhøsting-siden),
-      basert på arrangementene du har valgt der. Ingenting publiseres automatisk.
+      Skriver én samlet artikkel av arrangementene du har valgt på Innhøsting-siden som
+      faller i perioden du velger under. Ingenting publiseres automatisk.
     </p>
 
     {% if feilmelding %}
@@ -34,7 +33,48 @@
     {% endif %}
 
     <form method="post" action="/artikler/generer" id="generer-skjema" class="skjema-kort">
-      <label>Stilinstruks til Claude (redigerbar — forhåndsutfylt med standarden)
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+        <label>Fra dato
+          <input type="date" name="fra_dato" id="artikkel-fra-dato" value="{{ forste_dag.isoformat() }}" />
+        </label>
+        <label>Antall dager fremover
+          <input
+            type="number"
+            id="artikkel-antall-dager"
+            min="1"
+            max="365"
+            value="{{ antall_dager }}"
+            style="width: 6rem;"
+          />
+        </label>
+        <label>Til dato
+          <input type="date" name="til_dato" id="artikkel-til-dato" value="{{ siste_dag.isoformat() }}" />
+        </label>
+      </div>
+      <p class="meta" style="margin: 0.4rem 0 0;">
+        "Antall dager fremover" er kun en snarvei som fyller ut "Til dato" for deg — juster
+        "Til dato" direkte om du vil ha en periode som ikke passer et rundt antall dager.
+      </p>
+      <script>
+        (function () {
+          var fraFelt = document.getElementById("artikkel-fra-dato");
+          var antallFelt = document.getElementById("artikkel-antall-dager");
+          var tilFelt = document.getElementById("artikkel-til-dato");
+          function oppdaterTilDato() {
+            var fra = new Date(fraFelt.value + "T00:00:00");
+            var antall = parseInt(antallFelt.value, 10);
+            if (isNaN(fra.getTime()) || isNaN(antall) || antall < 1) {
+              return;
+            }
+            var til = new Date(fra.getTime());
+            til.setDate(til.getDate() + antall - 1);
+            tilFelt.value = til.toISOString().slice(0, 10);
+          }
+          fraFelt.addEventListener("change", oppdaterTilDato);
+          antallFelt.addEventListener("change", oppdaterTilDato);
+        })();
+      </script>
+      <label style="margin-top: 0.75rem; display: block;">Stilinstruks til Claude (redigerbar — forhåndsutfylt med standarden)
         <textarea
           name="instruks"
           rows="12"

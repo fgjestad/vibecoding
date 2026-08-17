@@ -55,11 +55,13 @@
           <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem;">
             <label>Frekvens
               <select name="frekvens" id="auto-frekvens">
-                <option value="daglig" {% if auto_innhosting_frekvens != 'ukentlig' %}selected{% endif %}>Daglig</option>
+                <option value="daglig" {% if auto_innhosting_frekvens == 'daglig' %}selected{% endif %}>Daglig</option>
                 <option value="ukentlig" {% if auto_innhosting_frekvens == 'ukentlig' %}selected{% endif %}>Ukentlig</option>
+                <option value="to_ganger_ukentlig" {% if auto_innhosting_frekvens == 'to_ganger_ukentlig' %}selected{% endif %}>To ganger i uka</option>
               </select>
             </label>
-            <label id="auto-ukedag-wrapper">Ukedag
+            <label id="auto-ukedag-wrapper">
+              <span id="auto-ukedag-label">Ukedag</span>
               <select name="ukedag">
                 {% set ukedager = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"] %}
                 {% for navn in ukedager %}
@@ -71,14 +73,31 @@
               <input type="time" name="klokkeslett" value="{{ auto_innhosting_klokkeslett }}" />
             </label>
           </div>
+          <div id="auto-ukedag-wrapper-2" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem;">
+            <label>Ukedag (andre kjøring)
+              <select name="ukedag_2">
+                {% for navn in ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"] %}
+                  <option value="{{ loop.index0 }}" {% if auto_innhosting_ukedag_2 == loop.index0 %}selected{% endif %}>{{ navn }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Klokkeslett (andre kjøring)
+              <input type="time" name="klokkeslett_2" value="{{ auto_innhosting_klokkeslett_2 }}" />
+            </label>
+          </div>
           <button type="submit" class="primær" style="margin-top: 0.75rem;">Lagre autojobb</button>
         </form>
         <script>
           (function () {
             var frekvensValg = document.getElementById("auto-frekvens");
             var ukedagFelt = document.getElementById("auto-ukedag-wrapper");
+            var ukedagLabel = document.getElementById("auto-ukedag-label");
+            var ukedagFelt2 = document.getElementById("auto-ukedag-wrapper-2");
             function oppdaterSynlighet() {
-              ukedagFelt.style.display = frekvensValg.value === "ukentlig" ? "" : "none";
+              var visUkedag = frekvensValg.value === "ukentlig" || frekvensValg.value === "to_ganger_ukentlig";
+              ukedagFelt.style.display = visUkedag ? "" : "none";
+              ukedagLabel.textContent = frekvensValg.value === "to_ganger_ukentlig" ? "Ukedag (første kjøring)" : "Ukedag";
+              ukedagFelt2.style.display = frekvensValg.value === "to_ganger_ukentlig" ? "flex" : "none";
             }
             frekvensValg.addEventListener("change", oppdaterSynlighet);
             oppdaterSynlighet();
