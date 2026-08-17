@@ -1556,6 +1556,20 @@ def _hent_gjeldende_artikkel(session: Session) -> Artikkel | None:
     return session.exec(select(Artikkel).order_by(Artikkel.id.desc())).first()
 
 
+def _grupper_avsnitt_etter_kategori(rader: list[ArtikkelAvsnitt]) -> list[list[ArtikkelAvsnitt]]:
+    """Grupperer en rekkefølge-sortert liste med avsnitt til sammenhengende kjeder med lik
+    kategori — en mellomtittel vises kun for FØRSTE avsnitt i hver kjede. Samme algoritme
+    brukes både til visning (_avsnitt_for_artikkel) og til å tolke innsendte kategori-endringer
+    ved lagring (lagre_artikkel), slik at de to aldri kan komme i utakt med hverandre."""
+    grupper: list[list[ArtikkelAvsnitt]] = []
+    for rad in rader:
+        if grupper and grupper[-1][-1].kategori == rad.kategori:
+            grupper[-1].append(rad)
+        else:
+            grupper.append([rad])
+    return grupper
+
+
 def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel) -> list[dict]:
     rader = session.exec(
         select(ArtikkelAvsnitt)
@@ -1563,19 +1577,18 @@ def _avsnitt_for_artikkel(session: Session, artikkel: Artikkel) -> list[dict]:
         .order_by(ArtikkelAvsnitt.rekkefolge)
     ).all()
     avsnitt_liste = []
-    forrige_kategori = None
-    for rad in rader:
-        avsnitt_liste.append(
-            {
-                "id": rad.id,
-                "tekst": rad.tekst,
-                "kategori": rad.kategori,
-                "ny_kategori": rad.kategori != forrige_kategori,
-                "kilde_url": rad.kilde_url,
-                "kilde_tittel": rad.kilde_tittel,
-            }
-        )
-        forrige_kategori = rad.kategori
+    for gruppe in _grupper_avsnitt_etter_kategori(rader):
+        for i, rad in enumerate(gruppe):
+            avsnitt_liste.append(
+                {
+                    "id": rad.id,
+                    "tekst": rad.tekst,
+                    "kategori": rad.kategori,
+                    "ny_kategori": i == 0,
+                    "kilde_url": rad.kilde_url,
+                    "kilde_tittel": rad.kilde_tittel,
+                }
+            )
     return avsnitt_liste
 
 
@@ -1755,9 +1768,40 @@ async def lagre_artikkel(
         artikkel.ingress = ingress
     session.add(artikkel)
 
-    for rad in session.exec(
-        select(ArtikkelAvsnitt).where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
-    ).all():
+    rader = session.exec(
+        select(ArtikkelAvsnitt)
+        .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
+        .order_by(ArtikkelAvsnitt.rekkefolge)
+    ).all()
+
+    # Kategori-feltet i skjemaet (se kategori_{{ a.id }} i artikler.html) sendes inn for HVERT
+    # avsnitt, men betyr ulikt avhengig av posisjon: på det FØRSTE avsnittet i en gruppe (der
+    # mellomtittelen vises) omdøper det HELE gruppen, mens på et hvilket som helst annet avsnitt
+    # bryter det avsnittet ut som (starten på) en egen, ny kategori i stedet. Sammenligner alltid
+    # mot original_kategori (verdien FØR denne lagringen) — ikke rad.kategori direkte — siden
+    # gruppens øvrige, urørte felt i skjemaet fortsatt sender inn den gamle verdien, og ville
+    # ellers blitt tolket som en (uønsket) individuell tilbakestilling rett etter at
+    # gruppe-omdøpingen under satte dem til den nye.
+    for gruppe in _grupper_avsnitt_etter_kategori(rader):
+        original_kategori = gruppe[0].kategori
+        innsendt_hode = skjema.get(f"kategori_{gruppe[0].id}")
+        if innsendt_hode is not None:
+            innsendt_hode = str(innsendt_hode).strip()
+            if innsendt_hode and innsendt_hode != original_kategori:
+                for medlem in gruppe:
+                    medlem.kategori = innsendt_hode
+                    session.add(medlem)
+        for rad in gruppe[1:]:
+            innsendt = skjema.get(f"kategori_{rad.id}")
+            if innsendt is None:
+                continue
+            innsendt = str(innsendt).strip()
+            if not innsendt or innsendt == original_kategori:
+                continue
+            rad.kategori = innsendt
+            session.add(rad)
+
+    for rad in rader:
         ny_tekst = skjema.get(f"avsnitt_{rad.id}")
         if ny_tekst is not None:
             rad.tekst = str(ny_tekst).strip()

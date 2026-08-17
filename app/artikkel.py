@@ -191,10 +191,13 @@ skal også ha en "kategori" du velger fritt ut fra hva slags arrangement det er.
 unge" for arrangementer rettet mot barn/ungdom, og "Kultur" for kulturarrangementer (konserter, \
 utstillinger, teater o.l.) når det passer — ellers velg en kort, dekkende kategori selv \
 (f.eks. idrett, frivillighet, livssyn). Disse kategoriene brukes som mellomtitler i artikkelen — \
-hold antallet ULIKE kategorier lavt (færrest mulig, typisk 2-4 totalt for en vanlig periode): \
-slå sammen beslektede arrangementer under samme, bredere kategori i stedet for å finne opp en \
-ny for hver type. Bruk "Annet" for enkeltstående arrangementer som ikke naturlig hører til en \
-av de andre kategoriene du har valgt.
+sikt mot omtrent 3-5 arrangementer per kategori: slå sammen beslektede arrangementer under \
+samme, bredere kategori i stedet for å finne opp en ny for hver type, MEN ikke slå sammen så \
+mye at én kategori ender opp med veldig mange flere enn det — del i så fall heller opp i flere, \
+mer spesifikke kategorier. La det totale antallet kategorier variere naturlig med hvor mange \
+arrangementer som er i perioden (mange arrangementer gir naturlig flere kategorier, få gir \
+færre) — ikke tving alt inn under et fast lite antall. Bruk "Annet" for enkeltstående \
+arrangementer som ikke naturlig hører til en av de andre kategoriene du har valgt.
 
 For hvert avsnitt gjelder:
 {instruks}
