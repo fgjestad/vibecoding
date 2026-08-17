@@ -184,13 +184,21 @@ class Innstilling(SQLModel, table=True):
         default=False, description="True hvis 'Kjør innhøsting' skal kjøres automatisk på et fast tidsskjema"
     )
     auto_innhosting_frekvens: str = Field(
-        default="daglig", description="daglig | ukentlig"
+        default="daglig", description="daglig | ukentlig | to_ganger_ukentlig"
     )
     auto_innhosting_ukedag: int = Field(
-        default=0, description="Ukedag for ukentlig autojobb: 0=mandag ... 6=søndag"
+        default=0, description="Ukedag for ukentlig autojobb (første/eneste kjøring): 0=mandag ... 6=søndag"
     )
     auto_innhosting_klokkeslett: str = Field(
-        default="06:00", description="Klokkeslett (HH:MM) autojobben kjører på"
+        default="06:00", description="Klokkeslett (HH:MM) for første/eneste kjøring"
+    )
+    auto_innhosting_ukedag_2: int = Field(
+        default=3,
+        description="Ukedag for andre ukentlige kjøring, kun brukt når frekvens er "
+        "to_ganger_ukentlig: 0=mandag ... 6=søndag",
+    )
+    auto_innhosting_klokkeslett_2: str = Field(
+        default="06:00", description="Klokkeslett (HH:MM) for andre kjøring (to_ganger_ukentlig)"
     )
     artikkel_instruks: Optional[str] = Field(
         default=None,

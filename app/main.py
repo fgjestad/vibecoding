@@ -140,27 +140,51 @@ def _hent_innstilling(session: Session) -> Innstilling:
     return innstilling
 
 
+_AUTO_INNHOSTING_JOBB_ID_2 = "auto-innhosting-2"
+
+
+def _parse_klokkeslett(klokkeslett: str | None) -> tuple[int, int]:
+    try:
+        time, minutt = (int(d) for d in (klokkeslett or "").split(":"))
+        return time, minutt
+    except (ValueError, AttributeError):
+        return 6, 0
+
+
 def _planlegg_auto_innhosting() -> None:
     """Leser gjeldende autojobb-innstillinger fra databasen og (re)planlegger den automatiske
     innhøstingsjobben i tidsplanleggeren. Kalles ved oppstart, og av admin-ruten under hver
-    gang innstillingene lagres, slik at en endring trer i kraft med én gang uten omstart."""
+    gang innstillingene lagres, slik at en endring trer i kraft med én gang uten omstart.
+
+    "to_ganger_ukentlig" bruker to UAVHENGIGE planlagte jobber (egne job-id-er) — én per
+    ukedag/klokkeslett-par — i stedet for én jobb med flere ukedager, siden APSchedulers
+    CronTrigger uansett kjører på hver av de angitte ukedagene likt; to separate jobber gjør
+    det enklere å fjerne/erstatte akkurat én av dem senere om det trengs."""
     with Session(engine) as session:
         innstilling = _hent_innstilling(session)
 
+    for jobb_id in (_AUTO_INNHOSTING_JOBB_ID, _AUTO_INNHOSTING_JOBB_ID_2):
+        if scheduler.get_job(jobb_id):
+            scheduler.remove_job(jobb_id)
+
     if not innstilling.auto_innhosting_aktiv:
-        if scheduler.get_job(_AUTO_INNHOSTING_JOBB_ID):
-            scheduler.remove_job(_AUTO_INNHOSTING_JOBB_ID)
         return
 
-    try:
-        time, minutt = (int(d) for d in innstilling.auto_innhosting_klokkeslett.split(":"))
-    except (ValueError, AttributeError):
-        time, minutt = 6, 0
+    if innstilling.auto_innhosting_frekvens == "to_ganger_ukentlig":
+        time1, minutt1 = _parse_klokkeslett(innstilling.auto_innhosting_klokkeslett)
+        trigger1 = CronTrigger(day_of_week=innstilling.auto_innhosting_ukedag, hour=time1, minute=minutt1)
+        scheduler.add_job(_kjor_automatisk_innhosting, trigger1, id=_AUTO_INNHOSTING_JOBB_ID, replace_existing=True)
 
+        time2, minutt2 = _parse_klokkeslett(innstilling.auto_innhosting_klokkeslett_2)
+        trigger2 = CronTrigger(day_of_week=innstilling.auto_innhosting_ukedag_2, hour=time2, minute=minutt2)
+        scheduler.add_job(_kjor_automatisk_innhosting, trigger2, id=_AUTO_INNHOSTING_JOBB_ID_2, replace_existing=True)
+        return
+
+    time_, minutt = _parse_klokkeslett(innstilling.auto_innhosting_klokkeslett)
     if innstilling.auto_innhosting_frekvens == "ukentlig":
-        trigger = CronTrigger(day_of_week=innstilling.auto_innhosting_ukedag, hour=time, minute=minutt)
+        trigger = CronTrigger(day_of_week=innstilling.auto_innhosting_ukedag, hour=time_, minute=minutt)
     else:
-        trigger = CronTrigger(hour=time, minute=minutt)
+        trigger = CronTrigger(hour=time_, minute=minutt)
     scheduler.add_job(_kjor_automatisk_innhosting, trigger, id=_AUTO_INNHOSTING_JOBB_ID, replace_existing=True)
 
 
@@ -192,16 +216,23 @@ def oppdater_auto_innhosting(
     klokkeslett: str = Form("06:00"),
     frekvens: str = Form("daglig"),
     ukedag: int = Form(0),
+    klokkeslett_2: str = Form("06:00"),
+    ukedag_2: int = Form(3),
     aktiv: bool = Form(False),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_admin),
 ):
     innstilling = _hent_innstilling(session)
     innstilling.auto_innhosting_aktiv = aktiv
-    innstilling.auto_innhosting_frekvens = "ukentlig" if frekvens == "ukentlig" else "daglig"
+    innstilling.auto_innhosting_frekvens = (
+        frekvens if frekvens in ("ukentlig", "to_ganger_ukentlig") else "daglig"
+    )
     innstilling.auto_innhosting_ukedag = max(0, min(ukedag, 6))
     if re.match(r"^\d{1,2}:\d{2}$", klokkeslett or ""):
         innstilling.auto_innhosting_klokkeslett = klokkeslett
+    innstilling.auto_innhosting_ukedag_2 = max(0, min(ukedag_2, 6))
+    if re.match(r"^\d{1,2}:\d{2}$", klokkeslett_2 or ""):
+        innstilling.auto_innhosting_klokkeslett_2 = klokkeslett_2
     session.add(innstilling)
     session.commit()
     _planlegg_auto_innhosting()
@@ -969,6 +1000,8 @@ def _innhosting_kontekst(
         "auto_innhosting_frekvens": innstilling.auto_innhosting_frekvens,
         "auto_innhosting_ukedag": innstilling.auto_innhosting_ukedag,
         "auto_innhosting_klokkeslett": innstilling.auto_innhosting_klokkeslett,
+        "auto_innhosting_ukedag_2": innstilling.auto_innhosting_ukedag_2,
+        "auto_innhosting_klokkeslett_2": innstilling.auto_innhosting_klokkeslett_2,
     }
 
 
@@ -1060,11 +1093,14 @@ def _kjor_manuelle_kilder(
 
 
 def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
-    """Selve innhøstingen: henter fra alle aktive kilder parallelt, lagrer nye funn og
-    oppdaterer duplikat-sammenslåinger. Delt mellom "Kjør innhøsting"-knappen (kjor_innhosting)
-    og den automatiske daglige/ukentlige autojobben (_kjor_automatisk_innhosting), slik at de
+    """Selve innhøstingen: rydder først bort avsluttede gamle arrangementer (se
+    _slett_gamle_arrangementer), henter deretter fra alle aktive kilder parallelt, lagrer nye
+    funn og oppdaterer duplikat-sammenslåinger. Delt mellom "Kjør innhøsting"-knappen
+    (kjor_innhosting) og den automatiske autojobben (_kjor_automatisk_innhosting), slik at de
     to kjøreveiene aldri kan drifte fra hverandre. Returnerer en liste med feilmeldinger for
     kilder som feilet (tom liste = alt gikk bra)."""
+    _slett_gamle_arrangementer(session)
+
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
@@ -1267,15 +1303,15 @@ def tom_utkast(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
-@app.post("/innhosting/slett-gamle")
-def slett_gamle_arrangementer(
-    session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
-):
+def _slett_gamle_arrangementer(session: Session) -> None:
     """Sletter arrangementer som allerede er avsluttet (sluttdato før i dag). Løpende
     arrangementer (startet før i dag, men ikke avsluttet ennå) beholdes, men får
     startdatoen flyttet fram til i morgen — samme konvensjon som resten av appen bruker
-    for "kommende" periode."""
+    for "kommende" periode.
+
+    Kjøres nå automatisk som første steg i hver innhøsting (se _utfor_innhosting), i tillegg
+    til at den fortsatt kan trigges manuelt via "Slett gamle arrangementer"-knappen —
+    utkastet holder seg dermed ryddig av seg selv uten at noen må huske å klikke knappen."""
     i_dag = date.today()
     i_morgen = i_dag + timedelta(days=1)
     for a in session.exec(select(Arrangement)).all():
@@ -1297,6 +1333,14 @@ def slett_gamle_arrangementer(
                 a.dato = i_morgen.isoformat()
                 session.add(a)
     session.commit()
+
+
+@app.post("/innhosting/slett-gamle")
+def slett_gamle_arrangementer(
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    _slett_gamle_arrangementer(session)
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
@@ -1605,11 +1649,31 @@ def lagre_artikkel_instruks(
 def generer_artikkel_rute(
     request: Request,
     instruks: str = Form(...),
+    fra_dato: str = Form(...),
+    til_dato: str = Form(...),
     session: Session = Depends(get_session),
     rolle: str = Depends(sjekk_passord),
 ):
+    # Perioden for artikkelen velges nå fritt på selve generer-skjemaet (se artikler.html),
+    # UAVHENGIG av "Antall dager fram i tid" på Innhøsting-siden, som fortsatt bare styrer hvor
+    # langt fram det høstes inn arrangementer til utkastet. Faller tilbake til det globale
+    # oppsettet hvis feltene mangler eller ikke er gyldige datoer.
     innstilling = _hent_innstilling(session)
-    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+    standard_forste, standard_siste = beregn_periode(antall_dager=innstilling.antall_dager)
+    try:
+        forste_dag = date.fromisoformat(fra_dato)
+        siste_dag = date.fromisoformat(til_dato)
+    except ValueError:
+        forste_dag, siste_dag = standard_forste, standard_siste
+
+    if forste_dag > siste_dag:
+        return templates.TemplateResponse(
+            "artikler.html",
+            _artikler_kontekst(
+                request, session, "«Fra dato» kan ikke være etter «Til dato».", rolle
+            ),
+        )
+
     valgte = session.exec(
         select(Arrangement).where(
             Arrangement.valgt == True,  # noqa: E712
@@ -1624,8 +1688,8 @@ def generer_artikkel_rute(
             _artikler_kontekst(
                 request,
                 session,
-                "Ingen valgte arrangementer i utkastet for gjeldende periode. Gå til "
-                "Innhøsting og velg noen først.",
+                "Ingen valgte arrangementer i utkastet for den valgte perioden. Gå til "
+                "Innhøsting og velg noen først, eller utvid perioden over.",
                 rolle,
             ),
         )
