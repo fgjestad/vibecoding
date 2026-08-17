@@ -154,7 +154,13 @@
 
           {% for a in avsnitt %}
             {% if a.ny_kategori %}
-              <h2 style="margin-top: 1.5rem;">{{ a.kategori }}</h2>
+              <input
+                type="text"
+                name="kategori_{{ a.id }}"
+                value="{{ a.kategori }}"
+                title="Endre for å gi denne mellomtittelen (og alle avsnitt under den) et nytt navn"
+                style="margin-top: 1.5rem; display: block; width: 100%; font-size: 1.3rem; font-weight: 700; font-family: inherit; border: none; border-bottom: 1px dashed var(--border); background: transparent; padding: 0.2rem 0;"
+              />
             {% endif %}
             <div class="kort" style="margin-top: 0.75rem;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
@@ -169,6 +175,18 @@
                     rows="4"
                     style="width: 100%; font-family: inherit;"
                   >{{ a.tekst }}</textarea>
+                  {% if not a.ny_kategori %}
+                    <label class="meta" style="display: block; margin-top: 0.3rem; font-weight: normal;">
+                      Kategori
+                      <input
+                        type="text"
+                        name="kategori_{{ a.id }}"
+                        value="{{ a.kategori }}"
+                        title="Endre til en annen verdi for å bryte dette avsnittet ut som (starten på) en ny kategori"
+                        style="width: 12rem; font-size: 0.8rem; font-family: inherit; margin-left: 0.3rem;"
+                      />
+                    </label>
+                  {% endif %}
                   <div class="meta" style="margin-top: 0.3rem;">
                     Kilde: {{ a.kilde_tittel }}
                     {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">lenke</a>{% endif %}
