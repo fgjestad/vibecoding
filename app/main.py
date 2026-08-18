@@ -1033,6 +1033,54 @@ def _filtrer_til_periode(arrangementer: list[dict], forste_dag: date, siste_dag:
     return [a for a in arrangementer if fra <= str(a.get("dato") or "") <= til]
 
 
+def _kjor_en_manuell_kilde(
+    session: Session,
+    mk: ManuellKilde,
+    forste_dag: date,
+    siste_dag: date,
+    sett_ider: set[str],
+    ekskluderte_signaturer: set[str],
+    hittil_pr_dato: dict[str, list[Arrangement]],
+    flerdags_kandidater: list[Arrangement],
+    berorte_grupper: set[str],
+    ikke_duplikat_par: set[frozenset[str]],
+) -> str | None:
+    """Henter og lagrer arrangementer fra ÉN manuell kilde (skjermdump/PDF/limt inn tekst) på
+    nytt, og oppdaterer kildens utløpsdato/sist_kjort_at/aktiv-status. Brukt både av
+    _kjor_manuelle_kilder (alle aktive kilder, som del av en full innhøsting) og av
+    kjor_manuell_kilde_na-ruta ("Kjør på nytt"-knappen for én enkelt kilde, uten å røre resten
+    av innhøstingen). Returnerer en feilmelding hvis hentingen feilet, ellers None."""
+    i_dag = date.today().isoformat()
+    try:
+        instruks_uten_periode = instruks_for_manuell_kilde()
+        if mk.kilde_type == "skjermdump":
+            rå = hent_fra_bilde(
+                mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
+                instruks=instruks_uten_periode,
+            )
+        elif mk.kilde_type == "pdf":
+            rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
+        else:
+            rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
+    except Exception as e:
+        return f"{mk.navn} ({e})"
+
+    mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
+    mk.sist_kjort_at = datetime.utcnow()
+    if mk.utlopsdato and mk.utlopsdato < i_dag:
+        mk.aktiv = False
+    session.add(mk)
+    session.commit()
+
+    for a in _filtrer_til_periode(rå, forste_dag, siste_dag):
+        _lagre_arrangement(
+            session, a, sett_ider, ekskluderte_signaturer, hittil_pr_dato, flerdags_kandidater,
+            berorte_grupper, ikke_duplikat_par,
+        )
+    session.commit()
+    return None
+
+
 def _kjor_manuelle_kilder(
     session: Session,
     forste_dag: date,
@@ -1061,34 +1109,12 @@ def _kjor_manuelle_kilder(
             session.add(mk)
             continue
 
-        try:
-            instruks_uten_periode = instruks_for_manuell_kilde()
-            if mk.kilde_type == "skjermdump":
-                rå = hent_fra_bilde(
-                    mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
-                    instruks=instruks_uten_periode,
-                )
-            elif mk.kilde_type == "pdf":
-                rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
-            else:
-                rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
-        except Exception as e:
-            feil.append(f"{mk.navn} ({e})")
-            continue
-
-        mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
-        mk.sist_kjort_at = datetime.utcnow()
-        if mk.utlopsdato and mk.utlopsdato < i_dag:
-            mk.aktiv = False
-        session.add(mk)
-        session.commit()
-
-        for a in _filtrer_til_periode(rå, forste_dag, siste_dag):
-            _lagre_arrangement(
-                session, a, sett_ider, ekskluderte_signaturer, hittil_pr_dato, flerdags_kandidater,
-                berorte_grupper, ikke_duplikat_par,
-            )
-        session.commit()
+        feilmelding = _kjor_en_manuell_kilde(
+            session, mk, forste_dag, siste_dag, sett_ider, ekskluderte_signaturer, hittil_pr_dato,
+            flerdags_kandidater, berorte_grupper, ikke_duplikat_par,
+        )
+        if feilmelding:
+            feil.append(feilmelding)
     return feil
 
 
@@ -1508,6 +1534,46 @@ def deaktiver_manuell_kilde(
         mk.aktiv = False
         session.add(mk)
         session.commit()
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/manuelle-kilder/{manuell_kilde_id}/kjor-na")
+def kjor_manuell_kilde_na(
+    manuell_kilde_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    rolle: str = Depends(sjekk_passord),
+):
+    """Kjører uttrekket for ÉN manuell kilde på nytt, uten å røre resten av innhøstingen (URL-
+    kilder eller andre manuelle kilder) — nyttig for å teste/verifisere en nylig opplastet
+    skjermdump/PDF, eller prøve på nytt etter en feil, uten kostnaden og ventetiden ved en full
+    innhøsting."""
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if not mk:
+        raise HTTPException(status_code=404, detail="Fant ikke denne manuelle kilden.")
+
+    innstilling = _hent_innstilling(session)
+    forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
+
+    eksisterende = session.exec(select(Arrangement)).all()
+    sett_ider = {a.arrangement_id for a in eksisterende}
+    hittil_pr_dato = _hittil_pr_dato(eksisterende)
+    flerdags_kandidater = [a for a in eksisterende if not a.er_sammenslatt]
+    ekskluderte = {e.signatur for e in session.exec(select(EkskludertSignatur)).all()}
+    ikke_duplikat_par = _hent_ikke_duplikat_par(session)
+    berorte_grupper: set[str] = set()
+
+    feilmelding = _kjor_en_manuell_kilde(
+        session, mk, forste_dag, siste_dag, sett_ider, ekskluderte, hittil_pr_dato,
+        flerdags_kandidater, berorte_grupper, ikke_duplikat_par,
+    )
+    _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
+
+    if feilmelding:
+        return templates.TemplateResponse(
+            "innhosting.html",
+            _innhosting_kontekst(request, session, f"Kunne ikke kjøre {mk.navn} på nytt: {feilmelding}", rolle),
+        )
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
