@@ -350,6 +350,9 @@
             </div>
             <div style="display: flex; gap: 0.5rem;">
               {% if mk.aktiv %}
+                <form method="post" action="/manuelle-kilder/{{ mk.id }}/kjor-na" style="margin: 0;">
+                  <button type="submit" title="Tolk denne kilden på nytt nå, uten å kjøre resten av innhøstingen">Kjør på nytt</button>
+                </form>
                 <form method="post" action="/manuelle-kilder/{{ mk.id }}/deaktiver" style="margin: 0;">
                   <button type="submit">Deaktiver</button>
                 </form>
