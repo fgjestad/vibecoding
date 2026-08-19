@@ -1815,39 +1815,31 @@ def generer_artikkel_rute(
     return RedirectResponse(url="/artikler", status_code=303)
 
 
-@app.post("/artikler/lagre")
-async def lagre_artikkel(
-    request: Request,
-    session: Session = Depends(get_session),
-    _: str = Depends(sjekk_passord),
-):
-    skjema = await request.form()
-    artikkel = _hent_gjeldende_artikkel(session)
-    if not artikkel:
-        return RedirectResponse(url="/artikler", status_code=303)
+def _lagre_avsnitt_endringer(session: Session, artikkel_id: int, skjema) -> None:
+    """Lagrer kategori- og tekstendringer for ALLE avsnitt i artikkelen, ut fra et innsendt
+    artikkel-skjema (se kategori_{{ a.id }}/avsnitt_{{ a.id }} i artikler.html).
 
-    tittel = str(skjema.get("tittel") or "").strip()
-    ingress = str(skjema.get("ingress") or "").strip()
-    if tittel:
-        artikkel.tittel = tittel
-    if ingress:
-        artikkel.ingress = ingress
-    session.add(artikkel)
+    Brukes ikke bare av selve "Lagre endringer"-knappen (lagre_artikkel), men også av
+    opp/ned/flytt-til/hent-mer/slett-knappene for enkeltavsnitt — disse deler samme
+    omsluttende <form> og sender derfor med ALLE feltene i skjemaet uansett hvilken knapp som
+    trykkes. Uten dette kallet ville en kategori- eller tekstendring brukeren nettopp gjorde et
+    annet sted på siden blitt stille forkastet av en slik knapp, siden de rutene ellers kun
+    bryr seg om sin egen, spesifikke handling.
 
+    Kategori-feltet betyr ulikt avhengig av posisjon: på det FØRSTE avsnittet i en gruppe (der
+    mellomtittelen vises) omdøper det HELE gruppen, mens på et hvilket som helst annet avsnitt
+    bryter det avsnittet ut som (starten på) en egen, ny kategori i stedet — enten en helt ny
+    kategori, eller samme navn som en annen eksisterende gruppe (som da slår dem sammen).
+    Sammenligner alltid mot original_kategori (verdien FØR denne lagringen) — ikke rad.kategori
+    direkte — siden gruppens øvrige, urørte felt i skjemaet fortsatt sender inn den gamle
+    verdien, og ville ellers blitt tolket som en (uønsket) individuell tilbakestilling rett
+    etter at gruppe-omdøpingen over satte dem til den nye."""
     rader = session.exec(
         select(ArtikkelAvsnitt)
-        .where(ArtikkelAvsnitt.artikkel_id == artikkel.id)
+        .where(ArtikkelAvsnitt.artikkel_id == artikkel_id)
         .order_by(ArtikkelAvsnitt.rekkefolge)
     ).all()
 
-    # Kategori-feltet i skjemaet (se kategori_{{ a.id }} i artikler.html) sendes inn for HVERT
-    # avsnitt, men betyr ulikt avhengig av posisjon: på det FØRSTE avsnittet i en gruppe (der
-    # mellomtittelen vises) omdøper det HELE gruppen, mens på et hvilket som helst annet avsnitt
-    # bryter det avsnittet ut som (starten på) en egen, ny kategori i stedet. Sammenligner alltid
-    # mot original_kategori (verdien FØR denne lagringen) — ikke rad.kategori direkte — siden
-    # gruppens øvrige, urørte felt i skjemaet fortsatt sender inn den gamle verdien, og ville
-    # ellers blitt tolket som en (uønsket) individuell tilbakestilling rett etter at
-    # gruppe-omdøpingen under satte dem til den nye.
     for gruppe in _grupper_avsnitt_etter_kategori(rader):
         original_kategori = gruppe[0].kategori
         innsendt_hode = skjema.get(f"kategori_{gruppe[0].id}")
@@ -1873,6 +1865,29 @@ async def lagre_artikkel(
             rad.tekst = str(ny_tekst).strip()
             session.add(rad)
     session.commit()
+
+
+@app.post("/artikler/lagre")
+async def lagre_artikkel(
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    skjema = await request.form()
+    artikkel = _hent_gjeldende_artikkel(session)
+    if not artikkel:
+        return RedirectResponse(url="/artikler", status_code=303)
+
+    tittel = str(skjema.get("tittel") or "").strip()
+    ingress = str(skjema.get("ingress") or "").strip()
+    if tittel:
+        artikkel.tittel = tittel
+    if ingress:
+        artikkel.ingress = ingress
+    session.add(artikkel)
+    session.commit()
+
+    _lagre_avsnitt_endringer(session, artikkel.id, skjema)
     return RedirectResponse(url="/artikler", status_code=303)
 
 
@@ -1900,21 +1915,29 @@ def _flytt_avsnitt(session: Session, avsnitt_id: int, retning: int) -> None:
 
 
 @app.post("/artikler/avsnitt/{avsnitt_id}/opp")
-def flytt_avsnitt_opp(
+async def flytt_avsnitt_opp(
     avsnitt_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if rad:
+        _lagre_avsnitt_endringer(session, rad.artikkel_id, await request.form())
     _flytt_avsnitt(session, avsnitt_id, -1)
     return RedirectResponse(url="/artikler", status_code=303)
 
 
 @app.post("/artikler/avsnitt/{avsnitt_id}/ned")
-def flytt_avsnitt_ned(
+async def flytt_avsnitt_ned(
     avsnitt_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if rad:
+        _lagre_avsnitt_endringer(session, rad.artikkel_id, await request.form())
     _flytt_avsnitt(session, avsnitt_id, 1)
     return RedirectResponse(url="/artikler", status_code=303)
 
@@ -1951,6 +1974,9 @@ async def flytt_avsnitt_til(
     # knappene for ALLE avsnitt deler samme omsluttende <form> (se artikler.html) — uten det
     # ville ett felles feltnavn kollidert på tvers av avsnittene.
     skjema = await request.form()
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
+    if rad:
+        _lagre_avsnitt_endringer(session, rad.artikkel_id, skjema)
     try:
         ny_posisjon = int(str(skjema.get(f"posisjon_{avsnitt_id}") or ""))
     except ValueError:
@@ -1960,20 +1986,22 @@ async def flytt_avsnitt_til(
 
 
 @app.post("/artikler/avsnitt/{avsnitt_id}/slett")
-def slett_avsnitt(
+async def slett_avsnitt(
     avsnitt_id: int,
+    request: Request,
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
     rad = session.get(ArtikkelAvsnitt, avsnitt_id)
     if rad:
+        _lagre_avsnitt_endringer(session, rad.artikkel_id, await request.form())
         session.delete(rad)
         session.commit()
     return RedirectResponse(url="/artikler", status_code=303)
 
 
 @app.post("/artikler/avsnitt/{avsnitt_id}/hent-mer")
-def hent_mer_for_avsnitt(
+async def hent_mer_for_avsnitt(
     avsnitt_id: int,
     request: Request,
     session: Session = Depends(get_session),
@@ -1982,6 +2010,8 @@ def hent_mer_for_avsnitt(
     rad = session.get(ArtikkelAvsnitt, avsnitt_id)
     if not rad:
         return RedirectResponse(url="/artikler", status_code=303)
+    _lagre_avsnitt_endringer(session, rad.artikkel_id, await request.form())
+    rad = session.get(ArtikkelAvsnitt, avsnitt_id)
     arrangement = session.get(Arrangement, rad.arrangement_id)
     if not arrangement:
         return RedirectResponse(url="/artikler", status_code=303)
