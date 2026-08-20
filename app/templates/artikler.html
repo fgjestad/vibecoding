@@ -491,12 +491,22 @@
         "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/model/content-type/story";
       var CUE_HOME_PUBLICATION = "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/";
 
-      // Som markdownTilHtml, men uten <a>-lenke rundt uthevede nøkkelord — Cue sin hviteliste
-      // for brødtekst-HTML inneholder ikke <a>, kun h2/p/b/u/i/lister/tabell/br. Kildelenken
-      // følger derfor ikke med i selve Cue-utkastet (i motsetning til "Kopier med formatering").
-      function markdownTilCueHtml(tekst) {
+      // Som markdownTilHtml (<b> i stedet for <strong>), MIDLERTIDIG med samme <a>-lenke rundt
+      // det første uthevede nøkkelordet som "Kopier med formatering" — for å teste i praksis om
+      // Cue faktisk godtar <a>, siden dokumentasjonens hviteliste (h2/p/b/u/i/lister/tabell/br)
+      // ikke nevner den. Fjern lenke-innpakningen igjen (som i markdownTilCueHtml uten kildeUrl)
+      // hvis testen viser at Cue strupes/fjerner den.
+      function markdownTilCueHtml(tekst, kildeUrl) {
+        var forsteBold = true;
         return escapeHtml(tekst)
-          .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+          .replace(/\*\*(.+?)\*\*/g, function (treff, innhold) {
+            var indre = "<b>" + innhold + "</b>";
+            if (forsteBold && kildeUrl) {
+              indre = '<a href="' + kildeUrl + '" target="_blank" rel="noopener">' + indre + "</a>";
+              forsteBold = false;
+            }
+            return indre;
+          })
           .replace(/\n/g, "<br>");
       }
 
@@ -509,7 +519,7 @@
           if (a.nyKategori) {
             body += "<h2>" + escapeHtml(a.kategori) + "</h2>";
           }
-          body += "<p>" + markdownTilCueHtml(a.tekst) + "</p>";
+          body += "<p>" + markdownTilCueHtml(a.tekst, a.kildeUrl) + "</p>";
         });
 
         var extra = {
