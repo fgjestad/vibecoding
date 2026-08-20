@@ -240,7 +240,11 @@
             </div>
           {% endfor %}
 
-          <p class="meta kalender-fotnote" style="margin-top: 1.5rem;">{{ kalender_fotnote }}</p>
+          <p
+            class="meta kalender-fotnote"
+            style="margin-top: 1.5rem;"
+            data-fotnote-url="{{ kalender_fotnote_url }}"
+          >{{ kalender_fotnote | replace("aktivitetskalender", '<a href="' ~ kalender_fotnote_url ~ '" target="_blank" rel="noopener">aktivitetskalender</a>') | safe }}</p>
         </div>
 
         <button type="submit" class="primær" style="margin-top: 1rem;">Lagre endringer</button>
@@ -267,7 +271,7 @@
           type="button"
           id="send-cue-knapp"
           onclick="sendTilCue('gjeldende-artikkel', {{ artikkel.id }})"
-          title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (uten kildelenker — seksjon og forfatter settes som vanlig i Cue)"
+          title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (seksjon og forfatter settes som vanlig i Cue)"
         >
           Send til Cue
         </button>
@@ -328,7 +332,11 @@
               </div>
             {% endfor %}
 
-            <p class="meta kalender-fotnote" style="margin-top: 1rem;">{{ kalender_fotnote }}</p>
+            <p
+              class="meta kalender-fotnote"
+              style="margin-top: 1rem;"
+              data-fotnote-url="{{ kalender_fotnote_url }}"
+            >{{ kalender_fotnote | replace("aktivitetskalender", '<a href="' ~ kalender_fotnote_url ~ '" target="_blank" rel="noopener">aktivitetskalender</a>') | safe }}</p>
 
             <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
               <button
@@ -349,7 +357,7 @@
                 type="button"
                 id="send-cue-{{ eldre.id }}"
                 onclick="sendTilCue('arkivert-{{ eldre.id }}', {{ eldre.id }})"
-                title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (uten kildelenker — seksjon og forfatter settes som vanlig i Cue)"
+                title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (seksjon og forfatter settes som vanlig i Cue)"
               >
                 Send til Cue
               </button>
@@ -390,10 +398,16 @@
           .replace(/\n/g, "<br>");
       }
 
-      function linkifyUrls(tekst) {
-        return tekst.replace(/(https?:\/\/[^\s]+)/g, function (url) {
-          return '<a href="' + url + '" target="_blank" rel="noopener">' + url + "</a>";
-        });
+      // Setter inn en <a>-lenke rundt (kun) den første forekomsten av ordet i teksten — brukt
+      // til å lenke ordet "aktivitetskalender" i kalender-fotnoten, i stedet for å skrive
+      // kilde-URL-en ut som synlig tekst.
+      function linkifyOrd(tekst, ord, url) {
+        var escaped = escapeHtml(tekst);
+        if (!url) {
+          return escaped;
+        }
+        var lenke = '<a href="' + url + '" target="_blank" rel="noopener">' + ord + "</a>";
+        return escaped.replace(ord, lenke);
       }
 
       function samleArtikkel(container) {
@@ -414,6 +428,7 @@
           ingress: ingressEl.value,
           avsnitt: avsnitt,
           fotnote: fotnoteEl ? fotnoteEl.textContent.trim() : "",
+          fotnoteUrl: fotnoteEl ? fotnoteEl.dataset.fotnoteUrl || "" : "",
         };
       }
 
@@ -424,6 +439,16 @@
         setTimeout(function () {
           knapp.textContent = opprinnelig;
         }, 1500);
+      }
+
+      // Fotnoten vises på siden (og hentes til HTML-eksport) uten synlig URL — "aktivitetskalender"
+      // er lenket i stedet (se linkifyOrd). Ren tekst har ingen lenker, så der må URL-en med som
+      // synlig tekst for at den fortsatt skal være brukbar.
+      function fotnoteRentekst(data) {
+        if (!data.fotnote) {
+          return "";
+        }
+        return data.fotnoteUrl ? data.fotnote + " " + data.fotnoteUrl : data.fotnote;
       }
 
       function kopierRentekst(containerId, knappId) {
@@ -439,7 +464,7 @@
           deler.push("");
         });
         if (data.fotnote) {
-          deler.push(data.fotnote);
+          deler.push(fotnoteRentekst(data));
         }
         navigator.clipboard.writeText(deler.join("\n").trim()).then(function () {
           varsleKopiert(knappId);
@@ -458,7 +483,7 @@
           html += "<p>" + markdownTilHtml(a.tekst, a.kildeUrl) + "</p>";
         });
         if (data.fotnote) {
-          html += "<p><small>" + linkifyUrls(escapeHtml(data.fotnote)) + "</small></p>";
+          html += "<p><small>" + linkifyOrd(data.fotnote, "aktivitetskalender", data.fotnoteUrl) + "</small></p>";
         }
         var plain = [data.tittel, "", data.ingress, ""];
         data.avsnitt.forEach(function (a) {
@@ -470,7 +495,7 @@
           plain.push("");
         });
         if (data.fotnote) {
-          plain.push(data.fotnote);
+          plain.push(fotnoteRentekst(data));
         }
 
         var item = new ClipboardItem({
@@ -491,11 +516,10 @@
         "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/model/content-type/story";
       var CUE_HOME_PUBLICATION = "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/";
 
-      // Som markdownTilHtml (<b> i stedet for <strong>), MIDLERTIDIG med samme <a>-lenke rundt
-      // det første uthevede nøkkelordet som "Kopier med formatering" — for å teste i praksis om
-      // Cue faktisk godtar <a>, siden dokumentasjonens hviteliste (h2/p/b/u/i/lister/tabell/br)
-      // ikke nevner den. Fjern lenke-innpakningen igjen (som i markdownTilCueHtml uten kildeUrl)
-      // hvis testen viser at Cue strupes/fjerner den.
+      // Som markdownTilHtml (<b> i stedet for <strong>), med samme <a>-lenke rundt det første
+      // uthevede nøkkelordet som "Kopier med formatering". Dokumentasjonens hviteliste for
+      // Cue sin brødtekst-HTML (h2/p/b/u/i/lister/tabell/br) nevner ikke <a>, men testet i
+      // praksis og bekreftet at Cue godtar og beholder lenken fint.
       function markdownTilCueHtml(tekst, kildeUrl) {
         var forsteBold = true;
         return escapeHtml(tekst)
@@ -510,17 +534,63 @@
           .replace(/\n/g, "<br>");
       }
 
+      var NORSKE_MANEDER = [
+        "januar", "februar", "mars", "april", "mai", "juni",
+        "juli", "august", "september", "oktober", "november", "desember",
+      ];
+
+      // Leser fra/til-datofeltene øverst på siden (samme felt som styrer "Generer artikkel")
+      // og lager en lesbar norsk periodetekst, f.eks. "21.–27. august 2026" eller
+      // "28. august – 3. september 2026". Returnerer "" hvis feltene mangler/er ugyldige.
+      function formaterDatoperiode(fraStr, tilStr) {
+        if (!fraStr || !tilStr) {
+          return "";
+        }
+        var fra = new Date(fraStr + "T00:00:00");
+        var til = new Date(tilStr + "T00:00:00");
+        if (isNaN(fra.getTime()) || isNaN(til.getTime())) {
+          return "";
+        }
+        var fraManed = NORSKE_MANEDER[fra.getMonth()];
+        var tilManed = NORSKE_MANEDER[til.getMonth()];
+        if (fraStr === tilStr) {
+          return fra.getDate() + ". " + fraManed + " " + fra.getFullYear();
+        }
+        if (fra.getFullYear() === til.getFullYear() && fra.getMonth() === til.getMonth()) {
+          return fra.getDate() + ".–" + til.getDate() + ". " + fraManed + " " + fra.getFullYear();
+        }
+        if (fra.getFullYear() === til.getFullYear()) {
+          return (
+            fra.getDate() + ". " + fraManed + " – " + til.getDate() + ". " + tilManed + " " + fra.getFullYear()
+          );
+        }
+        return (
+          fra.getDate() + ". " + fraManed + " " + fra.getFullYear() +
+          " – " + til.getDate() + ". " + tilManed + " " + til.getFullYear()
+        );
+      }
+
       function sendTilCue(containerId, artikkelId) {
         var container = document.getElementById(containerId);
         var data = samleArtikkel(container);
 
         var body = "";
+        var periodeTekst = formaterDatoperiode(
+          document.getElementById("artikkel-fra-dato").value,
+          document.getElementById("artikkel-til-dato").value
+        );
+        if (periodeTekst) {
+          body += "<p>Her er arrangementer som skjer i Nes i perioden " + escapeHtml(periodeTekst) + ".</p>";
+        }
         data.avsnitt.forEach(function (a) {
           if (a.nyKategori) {
             body += "<h2>" + escapeHtml(a.kategori) + "</h2>";
           }
           body += "<p>" + markdownTilCueHtml(a.tekst, a.kildeUrl) + "</p>";
         });
+        if (data.fotnote) {
+          body += "<p><i>" + linkifyOrd(data.fotnote, "aktivitetskalender", data.fotnoteUrl) + "</i></p>";
+        }
 
         var extra = {
           modelURI: { string: CUE_MODEL_URI, "$class": "URI" },
