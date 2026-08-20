@@ -113,10 +113,11 @@ templates.env.filters["datoperiode"] = datoperiode_tekst
 
 MAKS_SAMTIDIGE_KILDER = 5
 
+KALENDER_FOTNOTE_URL = "https://www.nes.kommune.no/aktivitetskalender/"
 KALENDER_FOTNOTE = (
     "Denne kalenderen er laget ved hjelp av kunstig intelligens og er gått gjennom av en "
     "journalist i Raumnes. Ønsker du oppføringer i denne kalenderen, legg det inn i Nes "
-    "kommune sin aktivitetskalender: https://www.nes.kommune.no/aktivitetskalender/"
+    "kommune sin aktivitetskalender."
 )
 
 scheduler = BackgroundScheduler(timezone="Europe/Oslo")
@@ -1699,6 +1700,7 @@ def _artikler_kontekst(
         "feilmelding": feilmelding,
         "rolle": rolle,
         "kalender_fotnote": KALENDER_FOTNOTE,
+        "kalender_fotnote_url": KALENDER_FOTNOTE_URL,
     }
 
 
