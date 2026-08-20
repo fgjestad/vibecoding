@@ -263,6 +263,14 @@
         <button type="button" id="kopier-formatert-knapp" onclick="kopierFormatert('gjeldende-artikkel', 'kopier-formatert-knapp')">
           Kopier med formatering
         </button>
+        <button
+          type="button"
+          id="send-cue-knapp"
+          onclick="sendTilCue('gjeldende-artikkel', {{ artikkel.id }})"
+          title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (uten kildelenker — seksjon og forfatter settes som vanlig i Cue)"
+        >
+          Send til Cue
+        </button>
       </div>
     {% endif %}
 
@@ -336,6 +344,14 @@
                 onclick="kopierFormatert('arkivert-{{ eldre.id }}', 'kopier-formatert-{{ eldre.id }}')"
               >
                 Kopier med formatering
+              </button>
+              <button
+                type="button"
+                id="send-cue-{{ eldre.id }}"
+                onclick="sendTilCue('arkivert-{{ eldre.id }}', {{ eldre.id }})"
+                title="Åpner et nytt utkast i Cue, forhåndsutfylt med tittel, ingress og brødtekst (uten kildelenker — seksjon og forfatter settes som vanlig i Cue)"
+              >
+                Send til Cue
               </button>
             </div>
           </div>
@@ -464,6 +480,58 @@
         navigator.clipboard.write([item]).then(function () {
           varsleKopiert(knappId);
         });
+      }
+
+      // Konfigurasjon for Raumnes' Cue-installasjon (Amedia/Escenic) — verifisert mot en ekte
+      // "opprett ny artikkel"-lenke fra Cue selv. Ingen hemmeligheter her: lenken virker kun
+      // fordi journalisten allerede er innlogget i Cue i samme nettleser (se "Cue: Create
+      // article from URI"-dokumentasjonen), akkurat som en vanlig "eksporter til CMS"-lenke.
+      var CUE_HOST = "https://raumne.cue.api.no";
+      var CUE_MODEL_URI =
+        "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/model/content-type/story";
+      var CUE_HOME_PUBLICATION = "https://raumne.cue.api.no/webservice/escenic/publication/raumnes/";
+
+      // Som markdownTilHtml, men uten <a>-lenke rundt uthevede nøkkelord — Cue sin hviteliste
+      // for brødtekst-HTML inneholder ikke <a>, kun h2/p/b/u/i/lister/tabell/br. Kildelenken
+      // følger derfor ikke med i selve Cue-utkastet (i motsetning til "Kopier med formatering").
+      function markdownTilCueHtml(tekst) {
+        return escapeHtml(tekst)
+          .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+          .replace(/\n/g, "<br>");
+      }
+
+      function sendTilCue(containerId, artikkelId) {
+        var container = document.getElementById(containerId);
+        var data = samleArtikkel(container);
+
+        var body = "";
+        data.avsnitt.forEach(function (a) {
+          if (a.nyKategori) {
+            body += "<h2>" + escapeHtml(a.kategori) + "</h2>";
+          }
+          body += "<p>" + markdownTilCueHtml(a.tekst) + "</p>";
+        });
+
+        var extra = {
+          modelURI: { string: CUE_MODEL_URI, "$class": "URI" },
+          homePublication: { string: CUE_HOME_PUBLICATION, "$class": "URI" },
+          container: false,
+          values: {
+            title: data.tittel,
+            leadtext: data.ingress,
+            body: body,
+          },
+        };
+
+        // Kilde-id-en trenger bare være unik per klikk — ingen andre systemer leser den, den
+        // vises kun som "Kilde ID" i Cue sitt metadatapanel til sporing/gjenkjenning.
+        var uri = "raumnes-kalender-" + artikkelId + "-" + Date.now();
+        var mimetype = "x-ece/new-content;type=story";
+        var params =
+          "uri=" + encodeURIComponent(uri) +
+          "&mimetype=" + encodeURIComponent(mimetype) +
+          "&extra=" + encodeURIComponent(JSON.stringify(extra));
+        window.open(CUE_HOST + "/#/main?" + params, "_blank");
       }
     </script>
 
