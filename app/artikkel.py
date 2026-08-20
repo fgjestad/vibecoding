@@ -184,7 +184,9 @@ ARRANGEMENTER (i rekkefølgen artikkelen skal ha):
 Skriv ÉN samlet artikkel som dekker alle arrangementene i listen. Du skal levere:
 - "tittel": en fengende tittel for artikkelen
 - "ingress": en kort ingress (2-3 setninger) som vinkler mot det mest spektakulære, \
-eksklusive eller oppsiktsvekkende blant arrangementene i perioden
+eksklusive eller oppsiktsvekkende blant arrangementene i perioden. IKKE avslutt ingressen med \
+en oppsummerende setning som «her er en oversikt over hva som skjer fra/i perioden ...» eller \
+lignende, med eller uten datoer — det vises allerede separat andre steder
 - "avsnitt": ett avsnitt PER arrangement i listen (samme antall, med riktig "arrangement_id") \
 — ikke slå sammen flere arrangementer i ett avsnitt, og ikke hopp over noen. Hvert avsnitt \
 skal også ha en "kategori" du velger fritt ut fra hva slags arrangement det er. Bruk "Barn og \
