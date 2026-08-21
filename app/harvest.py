@@ -960,8 +960,15 @@ def standard_instruks(forste_dag: date, siste_dag: date) -> str:
 
     Vises redigerbar i UI (jobb 2) slik at brukeren kan finpusse den før en kjøring.
     """
-    return f"""Perioden vi er interessert i: {forste_dag.isoformat()} til {siste_dag.isoformat()} \
-(begge datoer inkludert).
+    return f"""Dagens dato er {date.today().isoformat()}. Perioden vi er interessert i: \
+{forste_dag.isoformat()} til {siste_dag.isoformat()} (begge datoer inkludert).
+
+Hvis en dato i kilden ikke oppgir årstall eksplisitt (f.eks. bare "21. august" uten år), anta \
+det årstallet som gir en dato i eller nær perioden over — ALDRI et årstall som ville plassert \
+arrangementet i fortiden (før dagens dato), med mindre kilden eksplisitt oppgir et slikt \
+årstall selv. Vær spesielt obs på at bilder/PDF-er av annonser/plakater ofte gjenbruker en \
+gammel mal med feil/utdatert årstall trykt på seg (f.eks. i en logo eller footer) — stol IKKE \
+blindt på et slikt trykt årstall hvis det ikke stemmer med dagens dato og perioden over.
 
 For hvert arrangement i denne perioden, hent ut:
 - "tittel": kort tittel på arrangementet
@@ -989,7 +996,16 @@ def instruks_for_manuell_kilde() -> str:
     main._filtrer_til_periode), slik at et arrangement som først lå utenfor vinduet fanges opp
     automatisk når vinduet senere dekker datoen dets, i stedet for å gå tapt for godt. Brukes
     også til å beregne kildens utløpsdato (seneste arrangement-dato funnet)."""
-    return f"""For hvert arrangement som er omtalt, UANSETT DATO, hent ut:
+    return f"""Dagens dato er {date.today().isoformat()}.
+
+Hvis en dato i kilden ikke oppgir årstall eksplisitt (f.eks. bare "21. august" uten år), anta \
+det årstallet som gir NÆRMESTE FREMTIDIGE forekomst av den datoen fra i dag — ALDRI et årstall \
+som ville plassert arrangementet i fortiden (før dagens dato), med mindre kilden eksplisitt \
+oppgir et slikt årstall selv. Vær spesielt obs på at bilder/PDF-er av annonser/plakater ofte \
+gjenbruker en gammel mal med feil/utdatert årstall trykt på seg (f.eks. i en logo eller \
+footer) — stol IKKE blindt på et slikt trykt årstall hvis det ikke stemmer med dagens dato.
+
+For hvert arrangement som er omtalt, UANSETT DATO, hent ut:
 - "tittel": kort tittel på arrangementet
 - "dato": dato i format YYYY-MM-DD
 - "klokkeslett": klokkeslett hvis oppgitt (f.eks. "18:00"), ellers null
