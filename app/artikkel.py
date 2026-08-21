@@ -1,16 +1,14 @@
 import json
 import os
 import re
-from collections import Counter
 from datetime import date, datetime, timedelta
 
 from anthropic import Anthropic
 
+from app.harvest import UKEDAGER
 from app.models import Arrangement
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
-
-MINSTE_KATEGORI_STORRELSE = 3
 
 MAKS_TOKENS_ARTIKKEL = 8192
 
@@ -30,10 +28,9 @@ _ARTIKKEL_SKJEMA = {
                 "type": "object",
                 "properties": {
                     "arrangement_id": {"type": "integer"},
-                    "kategori": {"type": "string"},
                     "tekst": {"type": "string"},
                 },
-                "required": ["arrangement_id", "kategori", "tekst"],
+                "required": ["arrangement_id", "tekst"],
                 "additionalProperties": False,
             },
         },
@@ -114,29 +111,32 @@ def _sikre_fet_navn(tekst: str, tittel: str) -> str:
     return f"**{tittel}** – {tekst}" if tekst else f"**{tittel}**"
 
 
-def _kategori_prioritet(kategori: str) -> int:
-    """Barn og unge først, deretter kultur, så alle andre kategorier — etter brukerens ønske."""
-    normalisert = kategori.lower()
-    if "barn" in normalisert or "unge" in normalisert or "ungdom" in normalisert:
-        return 0
-    if "kultur" in normalisert:
-        return 1
-    return 2
+def _dag_kategori(dato_str: str) -> str:
+    """Mellomtittel for et avsnitt: kun ukedagsnavnet, f.eks. «Fredag» — beregnet i kode fra
+    arrangementets faktiske dato, IKKE overlatt til Claude å gjette/formulere selv, slik at
+    ukedagsnavnet alltid stemmer. To ulike dager med samme ukedagsnavn (f.eks. mandag i uke 29
+    og mandag i uke 30) får bevisst samme mellomtittel-tekst — de vises likevel som to separate
+    mellomtitler (ikke slått sammen til én), siden avsnitt-listen er kronologisk sortert og de
+    da alltid skilles av andre ukedager i mellom (se _grupper_avsnitt_etter_kategori i main.py,
+    som kun slår sammen SAMMENHENGENDE avsnitt med lik kategori)."""
+    try:
+        d = date.fromisoformat(dato_str)
+    except (ValueError, TypeError):
+        return "Annet"
+    return UKEDAGER[d.weekday()].capitalize()
 
 
 def generer_hel_artikkel(
     arrangementer: list[Arrangement], instruks: str | None = None
 ) -> tuple[dict | None, str]:
     """Skriver én artikkel for hele perioden, med ett avsnitt per arrangement, gruppert under
-    mellomtitler per kategori. Barn og unge kommer først, deretter kultur, så resten.
+    mellomtitler per DAG (ukedag + dato, se _dag_kategori) i kronologisk rekkefølge.
 
-    Kategori-instruksen (hvordan mellomtitlene velges) ligger her i koden, IKKE i den
-    redigerbare stilinstruksen (standard_artikkel_instruks) — den gjelder kun teksten i hvert
-    avsnitt, ikke kategoriseringen/grupperingen. En kategori som etter genereringen ender opp
-    med færre enn MINSTE_KATEGORI_STORRELSE avsnitt slås sammen inn i "Annet" i etterkant her
-    i koden — dette er et hardt, garantert krav (uavhengig av om Claude følger ledeteksten om
-    å ikke lage for mange kategorier), for å unngå mellomtitler med bare ett eller to avsnitt
-    under seg.
+    Kategoriseringen skjer utelukkende i kode, ut fra arrangementets faktiske dato — IKKE noe
+    Claude blir bedt om å velge eller formulere selv, siden dagen allerede er kjent eksakt fra
+    dataene. sorter_arrangementer sorterer allerede på (dato, klokkeslett), så avsnitt-listen
+    grupperes naturlig per dag (dato er primær sorteringsnøkkel) uten noe eget grupperingssteg
+    i etterkant.
 
     Returnerer ({"tittel", "ingress", "avsnitt": [...]}, "") ved suksess, eller
     (None, diagnosemelding) ved feil — diagnosen er ment å vises til brukeren, så den forklarer
@@ -188,18 +188,7 @@ eksklusive eller oppsiktsvekkende blant arrangementene i perioden. IKKE avslutt 
 en oppsummerende setning som «her er en oversikt over hva som skjer fra/i perioden ...» eller \
 lignende, med eller uten datoer — det vises allerede separat andre steder
 - "avsnitt": ett avsnitt PER arrangement i listen (samme antall, med riktig "arrangement_id") \
-— ikke slå sammen flere arrangementer i ett avsnitt, og ikke hopp over noen. Hvert avsnitt \
-skal også ha en "kategori" du velger fritt ut fra hva slags arrangement det er. Bruk "Barn og \
-unge" for arrangementer rettet mot barn/ungdom, og "Kultur" for kulturarrangementer (konserter, \
-utstillinger, teater o.l.) når det passer — ellers velg en kort, dekkende kategori selv \
-(f.eks. idrett, frivillighet, livssyn). Disse kategoriene brukes som mellomtitler i artikkelen — \
-sikt mot omtrent 3-5 arrangementer per kategori: slå sammen beslektede arrangementer under \
-samme, bredere kategori i stedet for å finne opp en ny for hver type, MEN ikke slå sammen så \
-mye at én kategori ender opp med veldig mange flere enn det — del i så fall heller opp i flere, \
-mer spesifikke kategorier. La det totale antallet kategorier variere naturlig med hvor mange \
-arrangementer som er i perioden (mange arrangementer gir naturlig flere kategorier, få gir \
-færre) — ikke tving alt inn under et fast lite antall. Bruk "Annet" for enkeltstående \
-arrangementer som ikke naturlig hører til en av de andre kategoriene du har valgt.
+— ikke slå sammen flere arrangementer i ett avsnitt, og ikke hopp over noen.
 
 For hvert avsnitt gjelder:
 {instruks}
@@ -258,47 +247,30 @@ For hvert avsnitt gjelder:
         )
 
     arrangement_pr_id = {a.id: a for a in sorterte}
-    mottatt_pr_id: dict[int, dict] = {}
+    tekst_pr_id: dict[int, str] = {}
     for rad in data.get("avsnitt", []):
         if not isinstance(rad, dict):
             continue
         aid = rad.get("arrangement_id")
         innhold = str(rad.get("tekst") or "").strip()
-        kategori = str(rad.get("kategori") or "").strip()
         if isinstance(aid, int) and aid in arrangement_pr_id and innhold:
-            mottatt_pr_id[aid] = {"tekst": innhold, "kategori": kategori or "Annet"}
+            tekst_pr_id[aid] = innhold
 
+    # sorterte er allerede sortert på (dato, klokkeslett) — avsnitt-listen bygges i samme
+    # rekkefølge, så den grupperes naturlig per dag (og kronologisk innenfor hver dag) uten
+    # noe eget grupperings-/sorteringssteg her.
     avsnitt = []
     for a in sorterte:
-        mottatt = mottatt_pr_id.get(a.id)
-        if mottatt:
-            avsnitt_tekst = _sikre_fet_navn(mottatt["tekst"], a.tittel)
-            kategori = mottatt["kategori"]
+        innhold = tekst_pr_id.get(a.id)
+        if innhold:
+            avsnitt_tekst = _sikre_fet_navn(innhold, a.tittel)
         else:
             # Reserveløsning: Claude hoppet over dette arrangementet — ta med enkel,
             # ikke-omskrevet faktatekst fremfor å miste det stille.
             tid = f" kl. {a.klokkeslett}" if a.klokkeslett else ""
             periode = f"{a.dato} – {a.til_dato}" if a.til_dato else a.dato
             avsnitt_tekst = f"**{a.tittel}** – {periode}{tid}, {a.sted}."
-            kategori = "Annet"
-        avsnitt.append({"arrangement_id": a.id, "tekst": avsnitt_tekst, "kategori": kategori})
-
-    # Garanter minst MINSTE_KATEGORI_STORRELSE avsnitt bak enhver egen mellomtittel, uavhengig
-    # av hvor mange (for) spesifikke kategorier Claude fant på — en kategori med færre enn det
-    # slås sammen inn i "Annet" i stedet for å få sin egen, nesten tomme mellomtittel.
-    kategori_antall = Counter(rad["kategori"] for rad in avsnitt)
-    for rad in avsnitt:
-        if kategori_antall[rad["kategori"]] < MINSTE_KATEGORI_STORRELSE:
-            rad["kategori"] = "Annet"
-
-    # Grupper etter kategori (barn/unge og kultur presset fremst), men behold kronologisk
-    # rekkefølge innenfor hver gruppe (stabil sortering).
-    kategori_forste_posisjon: dict[str, int] = {}
-    for i, rad in enumerate(avsnitt):
-        kategori_forste_posisjon.setdefault(rad["kategori"], i)
-    avsnitt.sort(
-        key=lambda rad: (_kategori_prioritet(rad["kategori"]), kategori_forste_posisjon[rad["kategori"]])
-    )
+        avsnitt.append({"arrangement_id": a.id, "tekst": avsnitt_tekst, "kategori": _dag_kategori(a.dato)})
 
     return {
         "tittel": tittel,
