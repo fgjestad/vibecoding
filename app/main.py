@@ -349,7 +349,7 @@ def deaktiver_kilde(
     _: str = Depends(sjekk_admin),
 ):
     kilde = session.get(Kilde, kilde_id)
-    if kilde and not er_dedikert_kilde(kilde.url):
+    if kilde:
         kilde.aktiv = False
         session.add(kilde)
         session.commit()

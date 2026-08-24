@@ -198,11 +198,11 @@ def _er_visitgreateroslo_kilde(url: str) -> bool:
 
 def er_dedikert_kilde(url: str) -> bool:
     """True hvis kilden hentes via en dedikert, direkte hente-vei (Nes kommunes
-    aktivitetskalender, Visit Greater Oslo, eller Kirken i Nes) i stedet for den generiske
-    AI-baserte hentingen. Slike kilder vises i kildelisten for åpenhetens skyld (så det er
-    tydelig at de faktisk dekkes), men kan ikke deaktiveres i UI-et — de hentes uansett alltid
-    via "Kjør innhøsting", som selv ruter dem til riktig dedikert hente-vei internt (se
-    hent_fra_kilde)."""
+    aktivitetskalender, Visit Greater Oslo, Kirken i Nes, eller Betelkirken) i stedet for den
+    generiske AI-baserte hentingen — hent_fra_kilde ruter dem selv til riktig dedikert
+    hente-vei internt. Brukes i kildelisten kun til å vise en "Dedikert integrasjon"-merkelapp
+    og skjule "Undersøk kilde"-knappen (unødvendig når hente-veien allerede er kjent); slike
+    kilder kan aktiveres/deaktiveres i UI-et akkurat som andre kilder."""
     vert = (urlparse(url).hostname or "").lower()
     nes_vert = (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower()
     kirkenines_vert = (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower()
