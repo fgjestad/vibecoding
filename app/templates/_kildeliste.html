@@ -69,9 +69,7 @@
             </button>
           </form>
         {% endif %}
-        {% if k.url | dedikert %}
-          {# Dedikerte kilder kan ikke deaktiveres — de hentes uansett ikke via denne løypa. #}
-        {% elif k.aktiv %}
+        {% if k.aktiv %}
           <form hx-post="/kilder/{{ k.id }}/deaktiver" hx-target="#kilde-liste" hx-swap="outerHTML">
             <button type="submit">Deaktiver</button>
           </form>
@@ -108,11 +106,11 @@
   {% if not kilder %}
     <p class="tom">Ingen kilder lagt til ennå. Legg til en under, eller bruk "oppdag nye kilder".</p>
   {% endif %}
-  {% for k in kilder if k.aktiv or (k.url is dedikert) %}
+  {% for k in kilder if k.aktiv %}
     {{ kildekort(k) }}
   {% endfor %}
 
-  {% set inaktive_kilder = kilder|rejectattr("aktiv")|rejectattr("url", "dedikert")|list %}
+  {% set inaktive_kilder = kilder|rejectattr("aktiv")|list %}
   {% if inaktive_kilder %}
     <details style="margin-top: 1rem;">
       <summary>Deaktiverte kilder ({{ inaktive_kilder|length }})</summary>
