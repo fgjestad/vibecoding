@@ -12,6 +12,8 @@ from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import httpx
+import icalendar
+import recurring_ical_events
 from anthropic import Anthropic
 
 MODEL = os.environ.get("ANTHROPIC_MODEL_INNHOSTING", "claude-haiku-4-5-20251001")
@@ -204,7 +206,13 @@ def er_dedikert_kilde(url: str) -> bool:
     vert = (urlparse(url).hostname or "").lower()
     nes_vert = (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower()
     kirkenines_vert = (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower()
-    return _er_visitgreateroslo_kilde(url) or vert == nes_vert or vert == kirkenines_vert
+    betelkirken_vert = (urlparse(BETELKIRKEN_KALENDER_URL).hostname or "").lower()
+    return (
+        _er_visitgreateroslo_kilde(url)
+        or vert == nes_vert
+        or vert == kirkenines_vert
+        or vert == betelkirken_vert
+    )
 
 
 def _er_nes_sted(sted: str) -> bool:
@@ -514,6 +522,70 @@ def diagnostiser_kirkenines_kalender(forste_dag: date, siste_dag: date) -> tuple
     if arrangementer:
         return arrangementer, ""
     return [], f"{direkte_feil} Reserveløsning: {fallback_diagnose}"
+
+
+# Betelkirken (Årnes og Auli) publiserer arrangementene sine i egne Google-kalendere, embedet
+# på betelkirken.no/kalendar via en tredjeparts Wix-app som injiserer selve kalender-iframen
+# med JavaScript ved kjøretid (ikke synlig i sidekilden). Kalender-ID-ene ble i stedet funnet
+# via "Legg til kalender" i en vanlig Google Calendar-konto, og feedene er offentlige og
+# fungerer uavhengig av Wix-siden — hentes derfor direkte som iCal (.ics), samme mønster som
+# Kirken i Nes over. To fysiske lokasjoner (Årnes og Auli) vises som duplikate arrangementer,
+# så begge feeder hentes og slås sammen til gjeldende kildelinje.
+BETELKIRKEN_KALENDER_URL = "https://www.betelkirken.no/kalendar"
+BETELKIRKEN_ICS_URLER = (
+    "https://calendar.google.com/calendar/ical/betelkirken1920%40gmail.com/public/basic.ics",
+    "https://calendar.google.com/calendar/ical/"
+    "5ba22c64a9b7d3026cec2377a254e56972048a82d39e810dc5e0d9472ad54ebd%40group.calendar.google.com"
+    "/public/basic.ics",
+)
+
+
+def _hent_fra_betelkirken_kalender(forste_dag: date, siste_dag: date) -> list[dict]:
+    """Henter strukturerte arrangementsdata direkte fra Betelkirkens to offentlige Google-
+    kalender-feeder (Årnes og Auli) som iCal, se kommentaren over BETELKIRKEN_KALENDER_URL.
+
+    Dataene kommer strukturert direkte fra kildens egen kalender (ingen AI-omskriving), så
+    original_tekst kan trygt merkes tekst_bekreftet=True."""
+    arrangementer = []
+    for ics_url in BETELKIRKEN_ICS_URLER:
+        respons = httpx.get(
+            ics_url, timeout=20.0,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+        )
+        respons.raise_for_status()
+        kalender = icalendar.Calendar.from_ical(respons.content)
+        hendelser = recurring_ical_events.of(kalender).between(forste_dag, siste_dag + timedelta(days=1))
+
+        for hendelse in hendelser:
+            tittel = str(hendelse.get("SUMMARY") or "").strip()
+            if not tittel:
+                continue
+            start = hendelse.get("DTSTART").dt
+            if isinstance(start, date) and not hasattr(start, "hour"):
+                dato_obj, klokkeslett = start, None
+            else:
+                dato_obj, klokkeslett = start.date(), start.strftime("%H:%M")
+            if not (forste_dag <= dato_obj <= siste_dag):
+                continue
+
+            sted = str(hendelse.get("LOCATION") or "").strip()
+            original_tekst = f"{tittel} – {sted}.".strip() if sted else f"{tittel}."
+
+            arrangementer.append(
+                {
+                    "tittel": tittel,
+                    "dato": dato_obj.isoformat(),
+                    "klokkeslett": klokkeslett,
+                    "sted": sted,
+                    "arrangor": None,
+                    "original_tekst": original_tekst,
+                    "geografisk_relevans": "bekreftet",
+                    "kilde_type": "fast_kalender",
+                    "kilde_url": BETELKIRKEN_KALENDER_URL,
+                    "tekst_bekreftet": True,
+                }
+            )
+    return arrangementer
 
 
 # Fotballkamper for lokale idrettslag, hentet direkte fra fotball.no (NFFs egen sportslige
@@ -1094,6 +1166,15 @@ def hent_fra_kilde(
         # ferdig rendret i en <script>-tag på siden (se diagnostiser_kirkenines_kalender).
         arrangementer, _diagnose = diagnostiser_kirkenines_kalender(forste_dag, siste_dag)
         return arrangementer, None
+
+    if (
+        urlparse(kilde_url).hostname or ""
+    ).lower() == (urlparse(BETELKIRKEN_KALENDER_URL).hostname or "").lower():
+        # betelkirken.no/kalendar viser selve kalenderen via en tredjeparts Wix-app som
+        # injiserer innholdet med JavaScript ved kjøretid — dataene hentes derfor i stedet
+        # direkte fra kirkens to offentlige Google-kalender-feeder, se
+        # _hent_fra_betelkirken_kalender.
+        return _hent_fra_betelkirken_kalender(forste_dag, siste_dag), None
 
     rå_resultat = _hent_side_raw(kilde_url)
     if rå_resultat:
