@@ -8,3 +8,5 @@ httpx==0.28.1
 python-dotenv==1.0.1
 apscheduler==3.11.3
 tzdata==2026.3
+icalendar==7.3.0
+recurring-ical-events==3.8.2
