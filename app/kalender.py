@@ -1,5 +1,6 @@
 """Datoregning, ICS-eksport og Google-lenker for Faglig tirsdag."""
 
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ MAANEDER = [
     "juli", "august", "september", "oktober", "november", "desember",
 ]
 UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
+UKEDAGER_KORT = ["ma", "ti", "on", "to", "fr", "lø", "sø"]
 
 TIRSDAG = 1  # date.weekday(): mandag = 0
 
@@ -20,6 +22,17 @@ def tredje_tirsdag(aar: int, maaned: int) -> date:
     foerste = date(aar, maaned, 1)
     foerste_tirsdag = 1 + (TIRSDAG - foerste.weekday()) % 7
     return date(aar, maaned, foerste_tirsdag + 14)
+
+
+def maaned_celler(aar: int, maaned: int) -> list[date | None]:
+    """Rutene i et månedsrutenett, radvis fra mandag. None er de tomme rutene før
+    den 1. og etter den siste, slik at ukene alltid blir hele rader på sju."""
+    foerste = date(aar, maaned, 1)
+    celler: list[date | None] = [None] * foerste.weekday()
+    celler += [date(aar, maaned, dag) for dag in range(1, monthrange(aar, maaned)[1] + 1)]
+    while len(celler) % 7:
+        celler.append(None)
+    return celler
 
 
 def maaned_navn(maaned: int) -> str:

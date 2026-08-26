@@ -8,6 +8,8 @@ tirsdagen i hver måned, og lar deg fylle inn tema og hvem som holder foredrag.
 - **Datoen kan flyttes** — passer ikke tredje tirsdag, setter du en annen dag.
 - **Måneder kan slettes** — for eksempel juli og desember. De kan hentes tilbake igjen.
 - **Røde dager markeres i rødt**, og ferieperioder får et mykere varsel.
+- **Hele måneden vises ved siden av** hver dag, så du ser hvor samlingen faller og
+  hvilke røde dager som ligger rundt den.
 - **Google Kalender** kan abonnere på hele serien, eller du kan legge inn én og én dag.
 
 Appen er en egen tjeneste, atskilt fra kalendergeneratoren: egen branch i dette

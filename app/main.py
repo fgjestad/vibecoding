@@ -14,11 +14,13 @@ from app.db import get_session, hent_innstilling, init_db
 from app.helligdager import ferieadvarsel, roed_dag
 from app.kalender import (
     OSLO,
+    UKEDAGER_KORT,
     formater_dato,
     google_lenke,
     ics_dokument,
     les_klokkeslett,
     les_maaned_noekkel,
+    maaned_celler,
     maaned_navn,
     tredje_tirsdag,
 )
@@ -125,6 +127,23 @@ def bygg_dag(noekkel: str, rad: FagligTirsdag | None, innstilling: Innstilling, 
     beskrivelse_linjer.append(f"Oversikt: {base_url(request)}/")
     beskrivelse = "\n".join(beskrivelse_linjer)
 
+    # Rutenettet tegnes for måneden datoen faktisk ligger i. Er samlingen flyttet over
+    # et månedsskifte, ville rutenettet for nøkkelmåneden vært uten uthevet dag i det
+    # hele tatt — derfor står måneden også skrevet over rutenettet.
+    i_dag_dato = i_dag()
+    rutenett = [
+        None
+        if celle is None
+        else {
+            "dag": celle.day,
+            "er_samling": celle == dato,
+            "roed": roed_dag(celle),
+            "er_i_dag": celle == i_dag_dato,
+            "er_helg": celle.weekday() >= 5,
+        }
+        for celle in maaned_celler(dato.year, dato.month)
+    ]
+
     return {
         "noekkel": noekkel,
         "aar": aar,
@@ -147,8 +166,10 @@ def bygg_dag(noekkel: str, rad: FagligTirsdag | None, innstilling: Innstilling, 
         "skjult": bool(rad and rad.skjult),
         "roed_dag": roed_dag(dato),
         "ferie": ferieadvarsel(dato),
-        "er_fortid": dato < i_dag(),
-        "er_i_dag": dato == i_dag(),
+        "er_fortid": dato < i_dag_dato,
+        "er_i_dag": dato == i_dag_dato,
+        "rutenett": rutenett,
+        "rutenett_tittel": f"{maaned_navn(dato.month)} {dato.year}",
         "har_innhold": bool(tema or foredragsholdere or notat),
         "tittel": tittel,
         "beskrivelse": beskrivelse,
@@ -183,6 +204,7 @@ def _hent_eller_lag_rad(session: Session, noekkel: str) -> FagligTirsdag:
 def _kontekst(request: Request, session: Session, **ekstra) -> dict:
     grunnlag = {
         "request": request,
+        "ukedager_kort": UKEDAGER_KORT,
         "admin": auth.er_admin(request),
         "passord_mangler": not auth.passord_er_satt(),
         "innstilling": hent_innstilling(session),

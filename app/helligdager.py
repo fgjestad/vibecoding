@@ -6,6 +6,7 @@ virker like godt for 2031 som for i år.
 """
 
 from datetime import date, timedelta
+from functools import lru_cache
 
 
 def paaskedag(aar: int) -> date:
@@ -23,6 +24,7 @@ def paaskedag(aar: int) -> date:
     return date(aar, maaned, dag + 1)
 
 
+@lru_cache(maxsize=64)
 def roede_dager(aar: int) -> dict[date, str]:
     """De offisielle røde dagene (helligdager og høytidsdager) i et år.
 

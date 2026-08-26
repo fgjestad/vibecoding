@@ -40,6 +40,8 @@
           {%- elif d.ferie %} obs{% endif %}
           {%- if d.er_fortid and not d.skjult %} fortid{% endif %}"
       >
+        <div class="dag-rad">
+        <div class="dag-hoved">
         <div class="dag-topp">
           <div>
             <span class="maaned">{{ d.maaned_navn }}</span>
@@ -77,6 +79,32 @@
             <p class="tom">Ingen samling denne måneden. Vises ikke for lesere.</p>
           </div>
         {% endif %}
+        </div>
+
+        {# Hele måneden under ett, så det er lett å se hvor samlingen faller og hva
+           som ligger rundt den. Datoen står i klartekst rett ved siden av, så
+           rutenettet er ren støy for en skjermleser. #}
+        <div class="mini-kalender" aria-hidden="true">
+          <span class="mk-tittel">{{ d.rutenett_tittel }}</span>
+          {% for kort in ukedager_kort %}
+            <span class="mk-hode">{{ kort }}</span>
+          {% endfor %}
+          {% for celle in d.rutenett %}
+            {% if celle %}
+              <span class="mk-dag
+                {%- if celle.er_samling %} samling{% endif %}
+                {%- if celle.er_samling and d.skjult %} avlyst{% endif %}
+                {%- if celle.roed %} roed{% endif %}
+                {%- if celle.er_helg %} helg{% endif %}
+                {%- if celle.er_i_dag %} i-dag{% endif %}"
+                {% if celle.roed %}title="{{ celle.roed|capitalize }}"{% endif %}
+              >{{ celle.dag }}</span>
+            {% else %}
+              <span class="mk-dag mk-blank"></span>
+            {% endif %}
+          {% endfor %}
+        </div>
+        </div>
 
         <div class="dag-bunn">
           {% if not d.skjult %}
