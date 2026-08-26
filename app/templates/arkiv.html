@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set aktiv = "arkiv" %}
+{% block tittel %}Arkiv{% endblock %}
+
+{% block innhold %}
+  <h1>Arkiv</h1>
+  <p class="undertittel">
+    Samlinger som har vært, nyeste først. Det som kommer, ligger under
+    <a href="/">Kommende</a>.
+  </p>
+
+  {% if grupper %}
+    {% for gruppe in grupper %}
+      <details class="aar-gruppe" {% if gruppe.apen %}open{% endif %}>
+        <summary class="aar-skille">
+          <span class="aarstall">{{ gruppe.aar }}</span>
+          <span class="aar-antall">
+            {{ gruppe.dager|length }} {{ "samling" if gruppe.dager|length == 1 else "samlinger" }}
+          </span>
+        </summary>
+        {% for d in gruppe.dager %}
+          {% if admin or not d.skjult %}
+            {% include "_dagkort.html" %}
+          {% endif %}
+        {% endfor %}
+      </details>
+    {% endfor %}
+  {% else %}
+    <p class="tom">Ingenting i arkivet ennå.</p>
+  {% endif %}
+{% endblock %}

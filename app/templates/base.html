@@ -16,7 +16,8 @@
 
     <nav class="meny">
       <div>
-        <a href="/" {% if aktiv == "oversikt" %}class="aktiv-lenke"{% endif %}>Oversikt</a> ·
+        <a href="/" {% if aktiv == "kommende" %}class="aktiv-lenke"{% endif %}>Kommende</a> ·
+        <a href="/arkiv" {% if aktiv == "arkiv" %}class="aktiv-lenke"{% endif %}>Arkiv</a> ·
         <a href="/hjelp" {% if aktiv == "hjelp" %}class="aktiv-lenke"{% endif %}>Google Kalender</a>
       </div>
       <div>

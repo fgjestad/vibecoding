@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app import auth
@@ -72,6 +73,28 @@ def maaneder_i_vindu() -> list[str]:
     return [
         _flytt_maaned(i_dag_dato, forskyvning)
         for forskyvning in range(-MAANEDER_BAKOVER, MAANEDER_FRAMOVER + 1)
+    ]
+
+
+def arkiv_start(session: Session) -> str:
+    """Første måned arkivet dekker: den eldste raden i databasen, eller
+    MAANEDER_BAKOVER tilbake hvis den er eldre. Da forsvinner ingenting du har lagt
+    inn ut av arkivet, uansett hvor lenge siden det er."""
+    gulv = _flytt_maaned(i_dag(), -MAANEDER_BAKOVER)
+    eldste = session.exec(select(func.min(FagligTirsdag.maaned))).first()
+    return min(eldste, gulv) if eldste else gulv
+
+
+def maaneder_fra_til(fra: str, til: str) -> list[str]:
+    """Alle månedsnøkler fra og med «fra» til og med «til»."""
+    fra_aar, fra_maaned = les_maaned_noekkel(fra)
+    til_aar, til_maaned = les_maaned_noekkel(til)
+    start = fra_aar * 12 + fra_maaned - 1
+    return [
+        f"{aar:04d}-{maaned + 1:02d}"
+        for aar, maaned in (
+            divmod(n, 12) for n in range(start, til_aar * 12 + til_maaned)
+        )
     ]
 
 
@@ -166,7 +189,6 @@ def bygg_dag(noekkel: str, rad: FagligTirsdag | None, innstilling: Innstilling, 
         "skjult": bool(rad and rad.skjult),
         "roed_dag": roed_dag(dato),
         "ferie": ferieadvarsel(dato),
-        "er_fortid": dato < i_dag_dato,
         "er_i_dag": dato == i_dag_dato,
         "rutenett": rutenett,
         "rutenett_tittel": f"{maaned_navn(dato.month)} {dato.year}",
@@ -185,10 +207,34 @@ def hent_dager(session: Session, noekler: list[str], request: Request) -> list[d
     return [bygg_dag(noekkel, rader.get(noekkel), innstilling, request) for noekkel in noekler]
 
 
+def alle_dager(session: Session, request: Request) -> list[dict]:
+    """Hver Faglig tirsdag appen kjenner til, fra arkivets begynnelse til enden av
+    planleggingsvinduet, sortert på den datoen samlingen faktisk har. Sorteringen
+    følger datoen og ikke månedsnøkkelen, slik at en samling som er flyttet over et
+    månedsskifte havner riktig i rekkefølgen."""
+    noekler = maaneder_fra_til(arkiv_start(session), _flytt_maaned(i_dag(), MAANEDER_FRAMOVER))
+    return sorted(hent_dager(session, noekler, request), key=lambda d: d["dato"])
+
+
+def grupper_etter_aar(dager: list[dict], apne: set[int] | None = None) -> list[dict]:
+    """Deler dagene i årbolker, i den rekkefølgen de allerede ligger. Bolker som ikke
+    står i «apne» vises sammenlagt — planleggingsvinduet er to år langt, og uten
+    dette blir sida en veldig lang rull gjennom måneder ingen har fylt ut ennå."""
+    grupper: list[dict] = []
+    for d in dager:
+        if not grupper or grupper[-1]["aar"] != d["dato"].year:
+            grupper.append({"aar": d["dato"].year, "dager": []})
+        grupper[-1]["dager"].append(d)
+    for gruppe in grupper:
+        gruppe["apen"] = apne is None or gruppe["aar"] in apne
+    return grupper
+
+
 def neste_dag(session: Session, request: Request) -> dict | None:
     """Første kommende Faglig tirsdag som ikke er slettet."""
-    dager = [d for d in hent_dager(session, maaneder_i_vindu(), request) if not d["skjult"]]
-    kommende = sorted((d for d in dager if d["dato"] >= i_dag()), key=lambda d: d["dato"])
+    kommende = [
+        d for d in alle_dager(session, request) if not d["skjult"] and d["dato"] >= i_dag()
+    ]
     return kommende[0] if kommende else None
 
 
@@ -201,9 +247,19 @@ def _hent_eller_lag_rad(session: Session, noekkel: str) -> FagligTirsdag:
     return rad
 
 
+def trygg_retur(retur: str, noekkel: str = "") -> str:
+    """Adressen en handling sender deg tilbake til. Verdien kommer fra et skjemafelt,
+    så bare de to fanene godtas — ellers kunne feltet pekt hvor som helst."""
+    sti = retur if retur in ("/", "/arkiv") else "/"
+    return f"{sti}#{noekkel}" if noekkel else sti
+
+
 def _kontekst(request: Request, session: Session, **ekstra) -> dict:
     grunnlag = {
         "request": request,
+        "uthev_neste": False,
+        "neste": None,
+        "retur": "/",
         "ukedager_kort": UKEDAGER_KORT,
         "admin": auth.er_admin(request),
         "passord_mangler": not auth.passord_er_satt(),
@@ -215,20 +271,42 @@ def _kontekst(request: Request, session: Session, **ekstra) -> dict:
 
 
 @app.get("/")
-def oversikt(request: Request, aar: int | None = None, session: Session = Depends(get_session)):
-    valgt_aar = aar or i_dag().year
-    if not 2000 <= valgt_aar <= 2100:
-        raise HTTPException(status_code=400, detail="Ugyldig årstall")
-    noekler = [f"{valgt_aar:04d}-{maaned:02d}" for maaned in range(1, 13)]
-    dager = hent_dager(session, noekler, request)
+def oversikt(request: Request, session: Session = Depends(get_session)):
+    """Bare det som kommer. Dagen i dag regnes som kommende — samlingen har ikke
+    vært før den er over."""
+    kommende = [d for d in alle_dager(session, request) if d["dato"] >= i_dag()]
+    neste = next((d for d in kommende if not d["skjult"]), None)
+    # I år og neste år står åpne — det er der planleggingen faktisk skjer.
+    apne = {i_dag().year, i_dag().year + 1}
     return templates.TemplateResponse(
         "oversikt.html",
         _kontekst(
             request,
             session,
-            aar=valgt_aar,
-            dager=dager,
-            neste=neste_dag(session, request),
+            grupper=grupper_etter_aar(kommende, apne),
+            neste=neste,
+            uthev_neste=True,
+            retur="/",
+        ),
+    )
+
+
+@app.get("/arkiv")
+def arkiv(request: Request, session: Session = Depends(get_session)):
+    """Det som har vært, nyeste først."""
+    tidligere = [d for d in alle_dager(session, request) if d["dato"] < i_dag()]
+    tidligere.reverse()
+    # Bare det året vi nettopp har lagt bak oss står åpent; eldre år er sammenlagt.
+    apne = {tidligere[0]["dato"].year} if tidligere else set()
+    return templates.TemplateResponse(
+        "arkiv.html",
+        _kontekst(
+            request,
+            session,
+            grupper=grupper_etter_aar(tidligere, apne),
+            neste=None,
+            uthev_neste=False,
+            retur="/arkiv",
         ),
     )
 
@@ -284,6 +362,7 @@ def lagre_dag(
     tema: str = Form(""),
     foredragsholdere: str = Form(""),
     notat: str = Form(""),
+    retur: str = Form("/"),
     session: Session = Depends(get_session),
 ):
     auth.krev_admin(request)
@@ -310,11 +389,16 @@ def lagre_dag(
     rad.oppdatert_at = datetime.utcnow()
     session.add(rad)
     session.commit()
-    return RedirectResponse(f"/?aar={rad.maaned[:4]}#{noekkel}", status_code=303)
+    return RedirectResponse(trygg_retur(retur, noekkel), status_code=303)
 
 
 @app.post("/dag/{noekkel}/slett")
-def slett_dag(noekkel: str, request: Request, session: Session = Depends(get_session)):
+def slett_dag(
+    noekkel: str,
+    request: Request,
+    retur: str = Form("/"),
+    session: Session = Depends(get_session),
+):
     """Sletter dagen fra oversikten og kalenderen. Raden blir liggende, slik at
     dagen ikke dukker opp igjen av seg selv — og slik at den kan hentes tilbake."""
     auth.krev_admin(request)
@@ -323,22 +407,32 @@ def slett_dag(noekkel: str, request: Request, session: Session = Depends(get_ses
     rad.oppdatert_at = datetime.utcnow()
     session.add(rad)
     session.commit()
-    return RedirectResponse(f"/?aar={noekkel[:4]}#{noekkel}", status_code=303)
+    return RedirectResponse(trygg_retur(retur, noekkel), status_code=303)
 
 
 @app.post("/dag/{noekkel}/gjenopprett")
-def gjenopprett_dag(noekkel: str, request: Request, session: Session = Depends(get_session)):
+def gjenopprett_dag(
+    noekkel: str,
+    request: Request,
+    retur: str = Form("/"),
+    session: Session = Depends(get_session),
+):
     auth.krev_admin(request)
     rad = _hent_eller_lag_rad(session, noekkel)
     rad.skjult = False
     rad.oppdatert_at = datetime.utcnow()
     session.add(rad)
     session.commit()
-    return RedirectResponse(f"/?aar={noekkel[:4]}#{noekkel}", status_code=303)
+    return RedirectResponse(trygg_retur(retur, noekkel), status_code=303)
 
 
 @app.post("/dag/{noekkel}/tilbakestill")
-def tilbakestill_dag(noekkel: str, request: Request, session: Session = Depends(get_session)):
+def tilbakestill_dag(
+    noekkel: str,
+    request: Request,
+    retur: str = Form("/"),
+    session: Session = Depends(get_session),
+):
     """Setter dagen tilbake til tredje tirsdag og standard klokkeslett og sted.
     Tema, foredragsholdere og notat røres ikke."""
     auth.krev_admin(request)
@@ -350,7 +444,7 @@ def tilbakestill_dag(noekkel: str, request: Request, session: Session = Depends(
     rad.oppdatert_at = datetime.utcnow()
     session.add(rad)
     session.commit()
-    return RedirectResponse(f"/?aar={noekkel[:4]}#{noekkel}", status_code=303)
+    return RedirectResponse(trygg_retur(retur, noekkel), status_code=303)
 
 
 @app.post("/innstillinger")
@@ -359,7 +453,6 @@ def lagre_innstillinger(
     standard_start: str = Form("08:30"),
     standard_slutt: str = Form("09:30"),
     standard_sted: str = Form(""),
-    retur_aar: int = Form(0),
     session: Session = Depends(get_session),
 ):
     auth.krev_admin(request)
@@ -370,8 +463,7 @@ def lagre_innstillinger(
     innstilling.oppdatert_at = datetime.utcnow()
     session.add(innstilling)
     session.commit()
-    aar = retur_aar if 2000 <= retur_aar <= 2100 else i_dag().year
-    return RedirectResponse(f"/?aar={aar}", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 @app.get("/kalender.ics")

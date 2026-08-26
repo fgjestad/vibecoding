@@ -104,24 +104,43 @@ h3 { font-size: 1.05rem; margin: 0; }
 .neste .dato { font-size: 1.25rem; font-weight: 600; margin: 0; }
 .neste .detaljer { color: #6a4a35; font-size: 0.9rem; margin: 0.25rem 0 0; }
 
-/* Årsnavigasjon */
-.aar-rad {
+/* Årsskille i den løpende lista. Hele bolken kan legges sammen. */
+.aar-gruppe { margin-bottom: 0.5rem; }
+
+.aar-skille {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin: 2rem 0 0.85rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  list-style: none;
 }
 
-.aar-rad .aarstall { font-size: 1.3rem; font-weight: 600; }
+.aar-skille::-webkit-details-marker { display: none; }
 
-.aar-rad a {
-  text-decoration: none;
-  border: 1px solid var(--border);
-  background: var(--card);
-  border-radius: 6px;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.9rem;
+.aar-skille::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.aar-gruppe:not([open]) > .aar-skille::after { content: "▸"; }
+.aar-gruppe:not([open]) > .aar-skille { margin-bottom: 0.5rem; }
+.aar-skille:hover .aarstall { color: var(--accent); }
+.aar-gruppe:first-of-type > .aar-skille { margin-top: 0.5rem; }
+
+.aar-skille .aarstall {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.aar-skille .aar-antall {
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 /* Dagkort */
@@ -137,7 +156,6 @@ h3 { font-size: 1.05rem; margin: 0; }
 .dag.roed { border-left-color: var(--danger); background: var(--danger-bg); }
 .dag.obs { border-left-color: var(--obs-kant); }
 .dag.kommende { border-left-color: var(--accent); }
-.dag.fortid { opacity: 0.6; }
 
 .dag.slettet {
   opacity: 0.75;

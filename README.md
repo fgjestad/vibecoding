@@ -4,6 +4,8 @@ Enkel kalenderapp for å planlegge Faglig tirsdag i Raumnes. Appen viser den tre
 tirsdagen i hver måned, og lar deg fylle inn tema og hvem som holder foredrag.
 
 - **Alle kan se oversikten** uten passord.
+- **Kommende og Arkiv** er skilt i hver sin fane — hovedsida viser bare det som ligger
+  fram i tid.
 - **Du logger inn** for å endre tema, foredragsholdere, tidspunkt og sted.
 - **Datoen kan flyttes** — passer ikke tredje tirsdag, setter du en annen dag.
 - **Måneder kan slettes** — for eksempel juli og desember. De kan hentes tilbake igjen.
@@ -168,6 +170,13 @@ Kjører du uten fast disk på Render, er dette eneste måten å ta vare på innh
 **Tredje tirsdag** regnes ut fra kalenderen, ikke fra databasen. Alle måneder finnes
 derfor i oversikten fra dag én — også år fram i tid. En rad i databasen opprettes
 først når du faktisk endrer eller sletter en måned.
+
+**Kommende og Arkiv** deles på den datoen samlingen faktisk har, ikke på hvilken måned
+den hører til. Flytter du mai-samlingen til 2. juni, følger den juni-datoen. Dagen i
+dag regnes som kommende helt til den er over. «Kommende» går to år fram
+(`MAANEDER_FRAMOVER` i `app/main.py`); arkivet går tilbake til den eldste raden som
+finnes, så ingenting du har lagt inn forsvinner ut av det. Årsbolker du ikke jobber
+med, ligger sammenlagt.
 
 **Sletting** fjerner dagen fra oversikten og kalenderfila, men raden blir liggende med
 et merke. Det er derfor dagen ikke dukker opp igjen av seg selv, og derfor du kan
