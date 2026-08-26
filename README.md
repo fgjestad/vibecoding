@@ -6,6 +6,8 @@ tirsdagen i hver måned, og lar deg fylle inn tema og hvem som holder foredrag.
 - **Alle kan se oversikten** uten passord.
 - **Kommende og Arkiv** er skilt i hver sin fane — hovedsida viser bare det som ligger
   fram i tid.
+- **Ekstra samlinger** kan legges inn mellom de faste dagene, med fri dato og flere i
+  samme måned om du vil.
 - **Du logger inn** for å endre tema, foredragsholdere, tidspunkt og sted.
 - **Datoen kan flyttes** — passer ikke tredje tirsdag, setter du en annen dag.
 - **Måneder kan slettes** — for eksempel juli og desember. De kan hentes tilbake igjen.
@@ -187,6 +189,15 @@ Ingen nettjeneste er involvert, så det virker like godt for 2040 som for i år.
 praksis er det bare 17. mai som kan treffe tredje tirsdag — neste gang er i 2033,
 deretter 2039, 2044 og 2050.
 Flytter du en dag manuelt til en rød dag, blir den også markert.
+
+**Ekstra samlinger** ligger i sin egen tabell, ikke som en ekstra rad blant de faste
+dagene. En ekstra samling har ingen regel å falle tilbake på, det kan være flere av dem
+i samme måned, og sletter du en, er den borte for godt — den kom aldri av seg selv. De
+faste dagene blir derimot bare merket som slettet, slik at de kan hentes tilbake.
+
+Ekstra samlinger vises alltid, også om datoen ligger utenfor planleggingsvinduet på to
+år. De er lagt inn for hånd, og skal ikke kunne falle ut av oversikten fordi de havnet
+utenfor et vindu.
 
 **Standardverdier** (klokkeslett og sted) settes nederst på oversikten når du er
 innlogget. Alle dager der du ikke har satt noe eget, følger dem.

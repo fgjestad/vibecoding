@@ -31,6 +31,26 @@ class FagligTirsdag(SQLModel, table=True):
     oppdatert_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class EkstraSamling(SQLModel, table=True):
+    """En samling utenom rekka — et ekstra faglig arrangement mellom de faste
+    tredje-tirsdagene.
+
+    Egen tabell, ikke en ekstra rad i FagligTirsdag: en ekstra samling har ingen
+    regel å falle tilbake på, det kan være flere av dem i samme måned, og sletter du
+    en, skal den være borte for godt — den kom aldri av seg selv."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dato: str = Field(index=True, description="YYYY-MM-DD")
+    start: str = Field(default="", description="HH:MM. Tomt betyr standard klokkeslett.")
+    slutt: str = Field(default="", description="HH:MM. Tomt betyr standard klokkeslett.")
+    sted: str = Field(default="", description="Tomt betyr standard sted.")
+    tema: str = Field(default="")
+    foredragsholdere: str = Field(default="")
+    notat: str = Field(default="")
+    opprettet_at: datetime = Field(default_factory=datetime.utcnow)
+    oppdatert_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Innstilling(SQLModel, table=True):
     """Standardverdier nye dager arver. Alltid nøyaktig én rad (id = 1)."""
 

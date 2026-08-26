@@ -6,13 +6,16 @@
     {%- elif d.roed_dag %} roed
     {%- elif uthev_neste and neste and d.noekkel == neste.noekkel %} kommende
     {%- elif d.ferie %} obs{% endif %}
+    {%- if d.ekstra %} ekstra{% endif %}
     "
 >
   <div class="dag-rad">
   <div class="dag-hoved">
   <div class="dag-topp">
     <div>
-      <span class="maaned">{{ d.maaned_navn }}</span>
+      <span class="maaned">
+        {{ d.maaned_navn }}{% if d.ekstra %} <span class="ekstra-merke">ekstra</span>{% endif %}
+      </span>
       <h3>{{ d.dato_tekst }}</h3>
       {% if not d.skjult %}
         <p class="tid">
@@ -62,6 +65,7 @@
         <span class="mk-dag
           {%- if celle.er_samling %} samling{% endif %}
           {%- if celle.er_samling and d.skjult %} avlyst{% endif %}
+          {%- if celle.er_annen_samling %} annen-samling{% endif %}
           {%- if celle.roed %} roed{% endif %}
           {%- if celle.er_helg %} helg{% endif %}
           {%- if celle.er_i_dag %} i-dag{% endif %}"
@@ -84,14 +88,14 @@
 
     {% if admin %}
       {% if d.skjult %}
-        <form class="inline" method="post" action="/dag/{{ d.noekkel }}/gjenopprett">
+        <form class="inline" method="post" action="{{ d.url_base }}/gjenopprett">
           <input type="hidden" name="retur" value="{{ retur }}" />
           <button type="submit">Hent tilbake</button>
         </form>
       {% else %}
         <details class="rediger">
           <summary>Rediger</summary>
-          <form class="skjema" method="post" action="/dag/{{ d.noekkel }}">
+          <form class="skjema" method="post" action="{{ d.url_base }}">
             <input type="hidden" name="retur" value="{{ retur }}" />
             <label>Tema
               <input type="text" name="tema" value="{{ d.tema }}"
@@ -126,9 +130,14 @@
               <textarea name="notat" placeholder="Valgfritt">{{ d.notat }}</textarea>
             </label>
             <p class="hint">
-              Tredje tirsdag denne måneden er {{ d.standard_dato_tekst }}. Lar du
-              dato, tid og sted stå som de er, følger dagen standardverdiene
-              videre.
+              {% if d.ekstra %}
+                En samling utenom rekka. Lar du tid og sted stå som de er, følger de
+                standardverdiene videre.
+              {% else %}
+                Tredje tirsdag denne måneden er {{ d.standard_dato_tekst }}. Lar du
+                dato, tid og sted stå som de er, følger dagen standardverdiene
+                videre.
+              {% endif %}
             </p>
             <div class="skjema-bunn">
               <button type="submit" class="primær">Lagre</button>
@@ -136,8 +145,8 @@
           </form>
 
           <div class="skjema-bunn">
-            {% if d.er_flyttet or d.start_felt or d.slutt_felt or d.sted_felt %}
-              <form class="inline" method="post" action="/dag/{{ d.noekkel }}/tilbakestill">
+            {% if not d.ekstra and (d.er_flyttet or d.start_felt or d.slutt_felt or d.sted_felt) %}
+              <form class="inline" method="post" action="{{ d.url_base }}/tilbakestill">
                 <input type="hidden" name="retur" value="{{ retur }}" />
                 <button type="submit">Tilbakestill dato, tid og sted</button>
               </form>
@@ -145,11 +154,17 @@
             <form
               class="inline"
               method="post"
-              action="/dag/{{ d.noekkel }}/slett"
-              onsubmit="return confirm('Slette Faglig tirsdag i {{ d.maaned_navn }} {{ d.aar }}? Du kan hente den tilbake senere.');"
+              action="{{ d.url_base }}/slett"
+              {% if d.ekstra %}
+                onsubmit="return confirm('Slette denne ekstra samlingen {{ d.dato_tekst }}? Den kan ikke hentes tilbake.');"
+              {% else %}
+                onsubmit="return confirm('Slette Faglig tirsdag i {{ d.maaned_navn }} {{ d.aar }}? Du kan hente den tilbake senere.');"
+              {% endif %}
             >
               <input type="hidden" name="retur" value="{{ retur }}" />
-              <button type="submit" class="faresone">Slett denne dagen</button>
+              <button type="submit" class="faresone">
+                {{ "Slett samlingen" if d.ekstra else "Slett denne dagen" }}
+              </button>
             </form>
           </div>
         </details>

@@ -24,6 +24,51 @@
     </section>
   {% endif %}
 
+  {% if admin %}
+    <details class="legg-til">
+      <summary>＋ Legg til en samling utenom rekka</summary>
+      <form class="skjema" method="post" action="/ekstra">
+        <input type="hidden" name="retur" value="/" />
+        <p class="hint" style="margin-top:0;">
+          For et ekstra faglig arrangement mellom de faste tredje tirsdagene. Det kan
+          være flere i samme måned, og datoen står helt fritt.
+        </p>
+        <label>Tema
+          <input type="text" name="tema" placeholder="Hva handler samlingen om?" />
+        </label>
+        <label>Hvem holder foredrag
+          <input type="text" name="foredragsholdere" placeholder="Navn, skilt med komma" />
+        </label>
+        <div class="rad">
+          <div>
+            <label>Dato
+              <input type="date" name="dato" required />
+            </label>
+          </div>
+          <div>
+            <label>Fra
+              <input type="time" name="start" value="{{ innstilling.standard_start }}" />
+            </label>
+          </div>
+          <div>
+            <label>Til
+              <input type="time" name="slutt" value="{{ innstilling.standard_slutt }}" />
+            </label>
+          </div>
+        </div>
+        <label>Sted
+          <input type="text" name="sted" placeholder="{{ innstilling.standard_sted }}" />
+        </label>
+        <label>Notat
+          <textarea name="notat" placeholder="Valgfritt"></textarea>
+        </label>
+        <div class="skjema-bunn">
+          <button type="submit" class="primær">Legg til samling</button>
+        </div>
+      </form>
+    </details>
+  {% endif %}
+
   {% if grupper %}
     {% for gruppe in grupper %}
       <details class="aar-gruppe" {% if gruppe.apen %}open{% endif %}>

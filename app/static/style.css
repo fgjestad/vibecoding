@@ -220,6 +220,11 @@ h3 { font-size: 1.05rem; margin: 0; }
 
 .mk-dag.samling.roed { background: var(--danger); color: #ffffff; }
 
+.mk-dag.annen-samling {
+  box-shadow: inset 0 0 0 1.5px var(--accent-soft);
+  font-weight: 600;
+}
+
 .mk-dag.samling.avlyst {
   background: none;
   color: var(--muted);
@@ -378,6 +383,39 @@ details.rediger[open] > summary { background: var(--accent-soft); border-color: 
   align-items: center;
   margin-top: 1rem;
 }
+
+/* Ekstra samlinger */
+.ekstra-merke {
+  display: inline-block;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-left: 0.15rem;
+  vertical-align: 1px;
+}
+
+.dag.ekstra { border-left-style: dashed; }
+
+details.legg-til { margin-bottom: 1.5rem; }
+
+details.legg-til > summary {
+  cursor: pointer;
+  display: inline-block;
+  list-style: none;
+  font-size: 0.9rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  background: var(--card);
+  color: var(--accent);
+}
+
+details.legg-til > summary::-webkit-details-marker { display: none; }
+details.legg-til > summary:hover { border-color: var(--accent); }
+details.legg-til[open] > summary { border-style: solid; margin-bottom: 0.5rem; }
 
 /* Kort for innstillinger, hjelp og innlogging */
 .kort {
