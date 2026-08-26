@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% set aktiv = "hjelp" %}
+{% block tittel %}Google Kalender{% endblock %}
+
+{% block innhold %}
+  <h1>Google Kalender</h1>
+  <p class="undertittel">
+    To måter å få Faglig tirsdag inn i din egen kalender. Begge foregår i nettleseren
+    din — appen kobler seg aldri til Google-kontoen din.
+  </p>
+
+  <h2>1. Abonner på hele serien (anbefalt)</h2>
+  <div class="kort">
+    <p>
+      Da dukker alle samlingene opp i Google Kalender, og de oppdaterer seg av seg selv
+      når noen endrer tema, flytter en dato eller sletter en måned.
+    </p>
+    <div class="url-boks">
+      <input type="text" id="feed-url" value="{{ base_url }}/kalender.ics" readonly
+             onclick="this.select();" />
+      <button type="button" onclick="kopier()">Kopier</button>
+    </div>
+    <ol class="steg">
+      <li>Kopier adressen over.</li>
+      <li>Åpne <a href="https://calendar.google.com/" target="_blank" rel="noopener">Google
+        Kalender</a> i nettleseren.</li>
+      <li>I menyen til venstre: trykk <strong>+</strong> ved siden av «Andre kalendere».</li>
+      <li>Velg <strong>Fra URL-adresse</strong>.</li>
+      <li>Lim inn adressen og trykk <strong>Legg til kalender</strong>.</li>
+    </ol>
+    <p class="tom">
+      Google henter oppdateringer med noen timers mellomrom, ikke umiddelbart. Haster
+      det, bruk knappen under i stedet.
+    </p>
+  </div>
+
+  <h2>2. Legg inn én samling om gangen</h2>
+  <div class="kort">
+    <p>
+      Knappen <strong>Legg i Google Kalender</strong> på hver dag i oversikten åpner
+      Google med tema, tidspunkt og sted ferdig utfylt. Du trykker bare
+      <strong>Lagre</strong>. Da må du være innlogget i Google i samme nettleser.
+    </p>
+    <p>
+      Bruker du Outlook, Apple Kalender eller noe annet, laster du heller ned
+      <strong>.ics</strong>-fila for dagen og åpner den.
+    </p>
+  </div>
+
+  <h2>Om oversikten</h2>
+  <div class="kort">
+    <p>
+      Alle måneder har en samling på <strong>tredje tirsdag</strong> med mindre noen har
+      slettet den. Dager som havner på en <strong>rød dag</strong> markeres i rødt, og
+      dager i ferieperioder får et mykere varsel — begge deler er bare et tips om at
+      dagen kanskje bør flyttes eller slettes.
+    </p>
+    <p>
+      Vil du endre noe, må du <a href="/logg-inn">logge inn</a>. Uten innlogging kan du
+      se alt, men ikke redigere.
+    </p>
+  </div>
+
+  <script>
+    function kopier() {
+      var felt = document.getElementById("feed-url");
+      felt.select();
+      // Clipboard-API-et krever https og finnes ikke i eldre nettlesere, så vi faller
+      // tilbake til den gamle kommandoen hvis det ikke er tilgjengelig.
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(felt.value);
+      } else {
+        document.execCommand("copy");
+      }
+    }
+  </script>
+{% endblock %}

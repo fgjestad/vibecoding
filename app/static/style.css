@@ -1,0 +1,346 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f7f5;
+  --card: #ffffff;
+  --border: #e2e0da;
+  --text: #23221f;
+  --muted: #6b6a65;
+  --accent: #8a4b2a;
+  --accent-soft: #f1e4da;
+  --danger: #a13a2f;
+  --danger-bg: #fcf0ed;
+  --danger-kant: #e0b0a8;
+  --obs: #8a6a1f;
+  --obs-bg: #fbf5e6;
+  --obs-kant: #ddcb9a;
+  --ok: #2f6b3a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 2rem 1rem 4rem;
+  line-height: 1.5;
+}
+
+main { max-width: 860px; margin: 0 auto; }
+
+a { color: var(--accent); }
+
+.tjeneste-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.tjeneste-header img { height: 34px; width: auto; }
+
+.tjeneste-header span {
+  color: var(--muted);
+  font-size: 1.05rem;
+  border-left: 1px solid var(--border);
+  padding-left: 0.6rem;
+}
+
+.meny {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1.75rem;
+}
+
+.meny a { text-decoration: none; }
+.meny a:hover { text-decoration: underline; }
+.aktiv-lenke { font-weight: 600; }
+.rolle { color: var(--muted); margin-right: 0.5rem; }
+
+h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.05rem; margin: 2.5rem 0 0.75rem; }
+h3 { font-size: 1.05rem; margin: 0; }
+
+.undertittel { color: var(--muted); margin-top: 0; margin-bottom: 1.75rem; }
+
+.varsel {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-kant);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+}
+
+/* Neste dag */
+.neste {
+  background: var(--accent-soft);
+  border: 1px solid #e0c8b4;
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.neste .stikktittel {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-weight: 700;
+  margin: 0 0 0.15rem;
+}
+
+.neste .dato { font-size: 1.25rem; font-weight: 600; margin: 0; }
+.neste .detaljer { color: #6a4a35; font-size: 0.9rem; margin: 0.25rem 0 0; }
+
+/* Årsnavigasjon */
+.aar-rad {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.aar-rad .aarstall { font-size: 1.3rem; font-weight: 600; }
+
+.aar-rad a {
+  text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.9rem;
+}
+
+/* Dagkort */
+.dag {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1.15rem;
+  margin-bottom: 0.7rem;
+}
+
+.dag.roed { border-left-color: var(--danger); background: var(--danger-bg); }
+.dag.obs { border-left-color: var(--obs-kant); }
+.dag.kommende { border-left-color: var(--accent); }
+.dag.fortid { opacity: 0.6; }
+
+.dag.slettet {
+  opacity: 0.75;
+  background: repeating-linear-gradient(
+    45deg, #fafaf8, #fafaf8 10px, #f2f1ed 10px, #f2f1ed 20px
+  );
+  border-left-color: var(--muted);
+}
+
+.dag-topp {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.maaned {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  display: block;
+}
+
+.dag.roed h3 { color: var(--danger); }
+.dag.slettet h3 { text-decoration: line-through; }
+
+.tid { color: var(--muted); font-size: 0.88rem; margin: 0.15rem 0 0; }
+
+.merker { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+.merke {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.merke.roed { background: #fbe3de; border-color: var(--danger-kant); color: var(--danger); font-weight: 600; }
+.merke.obs { background: var(--obs-bg); border-color: var(--obs-kant); color: var(--obs); }
+.merke.flyttet { background: var(--accent-soft); border-color: #e0c8b4; color: var(--accent); }
+
+.dag-innhold { margin: 0.6rem 0 0; }
+.tema { font-size: 1.02rem; margin: 0; }
+.personer { color: var(--text); font-size: 0.92rem; margin: 0.15rem 0 0; }
+.notat { color: var(--muted); font-size: 0.88rem; margin: 0.35rem 0 0; white-space: pre-wrap; }
+.tom { color: var(--muted); font-style: italic; margin: 0; }
+
+.dag-bunn {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Knapper */
+button, .knapp, input[type="submit"] {
+  font: inherit;
+  font-size: 0.87rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.knapp:hover, button:hover { border-color: var(--muted); }
+
+button.primær {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.primær:hover { border-color: var(--accent); background: #77401f; }
+button.faresone { color: var(--danger); }
+
+.lenkeknapp {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: inherit;
+}
+
+.lenkeknapp:hover { text-decoration: underline; border: none; }
+
+form.inline { display: inline; }
+
+/* Redigeringsskjema */
+/* Lukket ligger «Rediger» ytterst til høyre på knapperaden. Åpnet legger skjemaet
+   beslag på hele bredden, slik at feltene får plass i stedet for å klemmes inn i
+   restbredden av raden. */
+details.rediger { margin-left: auto; }
+details.rediger[open] { width: 100%; margin-left: 0; }
+
+details.rediger > summary {
+  cursor: pointer;
+  font-size: 0.87rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  list-style: none;
+  display: inline-block;
+  background: var(--card);
+}
+
+details.rediger > summary::-webkit-details-marker { display: none; }
+details.rediger[open] > summary { background: var(--accent-soft); border-color: #e0c8b4; }
+
+.skjema {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 1rem;
+  margin-top: 0.75rem;
+}
+
+.skjema label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+.skjema input, .skjema textarea {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  margin-top: 0.15rem;
+  background: var(--card);
+}
+
+.skjema textarea { min-height: 4.5rem; resize: vertical; }
+.skjema .rad { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.skjema .rad > div { flex: 1; min-width: 130px; }
+.skjema .hint { font-size: 0.78rem; color: var(--muted); margin: 0.3rem 0 0; }
+
+.skjema-bunn {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+/* Kort for innstillinger, hjelp og innlogging */
+.kort {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.15rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.kort h3 { margin-bottom: 0.35rem; }
+.kort p { margin: 0.35rem 0; }
+
+.url-boks {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+  flex-wrap: wrap;
+}
+
+.url-boks input {
+  flex: 1;
+  min-width: 240px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+ol.steg { padding-left: 1.2rem; }
+ol.steg li { margin: 0.35rem 0; }
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 560px) {
+  .dag-topp { flex-direction: column; gap: 0.35rem; }
+  details.rediger { margin-left: 0; width: 100%; }
+  .skjema .rad > div { min-width: 100%; }
+}

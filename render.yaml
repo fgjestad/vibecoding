@@ -1,0 +1,23 @@
+# Egen Render-tjeneste for Faglig tirsdag, atskilt fra kalendergeneratoren:
+# eget tjenestenavn, egen branch og egen disk. De to appene deler kun git-repo.
+services:
+  - type: web
+    name: raumnes-faglig-tirsdag
+    runtime: python
+    plan: starter
+    branch: claude/faglig-tirsdag-calendar-tzsm0p
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        value: sqlite:////data/data.db
+      - key: ADMIN_PASSORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true

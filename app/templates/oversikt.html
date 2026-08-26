@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% set aktiv = "oversikt" %}
+
+{% block innhold %}
+  <h1>Faglig tirsdag</h1>
+  <p class="undertittel">
+    Tredje tirsdag i hver måned. Datoen kan flyttes, og måneder uten samling kan slettes.
+  </p>
+
+  {% if neste %}
+    <section class="neste">
+      <div>
+        <p class="stikktittel">Neste samling</p>
+        <p class="dato">{{ neste.dato_tekst }}</p>
+        <p class="detaljer">
+          kl. {{ neste.start }}–{{ neste.slutt }}{% if neste.sted %} · {{ neste.sted }}{% endif %}
+          {% if neste.tema %} · {{ neste.tema }}{% else %} · <em>tema ikke satt</em>{% endif %}
+        </p>
+      </div>
+      <a class="knapp" href="{{ neste.google_url }}" target="_blank" rel="noopener">
+        Legg i Google Kalender
+      </a>
+    </section>
+  {% endif %}
+
+  <div class="aar-rad">
+    <a href="/?aar={{ aar - 1 }}">‹ {{ aar - 1 }}</a>
+    <span class="aarstall">{{ aar }}</span>
+    <a href="/?aar={{ aar + 1 }}">{{ aar + 1 }} ›</a>
+  </div>
+
+  {% for d in dager %}
+    {% if admin or not d.skjult %}
+      <article
+        id="{{ d.noekkel }}"
+        class="dag
+          {%- if d.skjult %} slettet
+          {%- elif d.roed_dag %} roed
+          {%- elif neste and d.noekkel == neste.noekkel %} kommende
+          {%- elif d.ferie %} obs{% endif %}
+          {%- if d.er_fortid and not d.skjult %} fortid{% endif %}"
+      >
+        <div class="dag-topp">
+          <div>
+            <span class="maaned">{{ d.maaned_navn }}</span>
+            <h3>{{ d.dato_tekst }}</h3>
+            {% if not d.skjult %}
+              <p class="tid">
+                kl. {{ d.start }}–{{ d.slutt }}{% if d.sted %} · {{ d.sted }}{% endif %}
+              </p>
+            {% endif %}
+          </div>
+          <div class="merker">
+            {% if d.skjult %}<span class="merke">Slettet</span>{% endif %}
+            {% if d.roed_dag %}
+              <span class="merke roed">Rød dag — {{ d.roed_dag }}</span>
+            {% elif d.ferie %}
+              <span class="merke obs">{{ d.ferie }}</span>
+            {% endif %}
+            {% if d.er_flyttet %}<span class="merke flyttet">Flyttet</span>{% endif %}
+            {% if d.er_i_dag %}<span class="merke">I dag</span>{% endif %}
+          </div>
+        </div>
+
+        {% if not d.skjult %}
+          <div class="dag-innhold">
+            {% if d.tema %}
+              <p class="tema"><strong>{{ d.tema }}</strong></p>
+            {% else %}
+              <p class="tom">Tema ikke satt</p>
+            {% endif %}
+            {% if d.foredragsholdere %}<p class="personer">{{ d.foredragsholdere }}</p>{% endif %}
+            {% if d.notat %}<p class="notat">{{ d.notat }}</p>{% endif %}
+          </div>
+        {% else %}
+          <div class="dag-innhold">
+            <p class="tom">Ingen samling denne måneden. Vises ikke for lesere.</p>
+          </div>
+        {% endif %}
+
+        <div class="dag-bunn">
+          {% if not d.skjult %}
+            <a class="knapp" href="{{ d.google_url }}" target="_blank" rel="noopener">
+              Legg i Google Kalender
+            </a>
+            <a class="knapp" href="{{ d.ics_url }}">Last ned .ics</a>
+          {% endif %}
+
+          {% if admin %}
+            {% if d.skjult %}
+              <form class="inline" method="post" action="/dag/{{ d.noekkel }}/gjenopprett">
+                <button type="submit">Hent tilbake</button>
+              </form>
+            {% else %}
+              <details class="rediger">
+                <summary>Rediger</summary>
+                <form class="skjema" method="post" action="/dag/{{ d.noekkel }}">
+                  <label>Tema
+                    <input type="text" name="tema" value="{{ d.tema }}"
+                           placeholder="Hva handler samlingen om?" />
+                  </label>
+                  <label>Hvem holder foredrag
+                    <input type="text" name="foredragsholdere" value="{{ d.foredragsholdere }}"
+                           placeholder="Navn, skilt med komma" />
+                  </label>
+                  <div class="rad">
+                    <div>
+                      <label>Dato
+                        <input type="date" name="dato" value="{{ d.dato_iso }}" />
+                      </label>
+                    </div>
+                    <div>
+                      <label>Fra
+                        <input type="time" name="start" value="{{ d.start }}" />
+                      </label>
+                    </div>
+                    <div>
+                      <label>Til
+                        <input type="time" name="slutt" value="{{ d.slutt }}" />
+                      </label>
+                    </div>
+                  </div>
+                  <label>Sted
+                    <input type="text" name="sted" value="{{ d.sted }}"
+                           placeholder="{{ innstilling.standard_sted }}" />
+                  </label>
+                  <label>Notat
+                    <textarea name="notat" placeholder="Valgfritt">{{ d.notat }}</textarea>
+                  </label>
+                  <p class="hint">
+                    Tredje tirsdag denne måneden er {{ d.standard_dato_tekst }}. Lar du
+                    dato, tid og sted stå som de er, følger dagen standardverdiene
+                    videre.
+                  </p>
+                  <div class="skjema-bunn">
+                    <button type="submit" class="primær">Lagre</button>
+                  </div>
+                </form>
+
+                <div class="skjema-bunn">
+                  {% if d.er_flyttet or d.start_felt or d.slutt_felt or d.sted_felt %}
+                    <form class="inline" method="post" action="/dag/{{ d.noekkel }}/tilbakestill">
+                      <button type="submit">Tilbakestill dato, tid og sted</button>
+                    </form>
+                  {% endif %}
+                  <form
+                    class="inline"
+                    method="post"
+                    action="/dag/{{ d.noekkel }}/slett"
+                    onsubmit="return confirm('Slette Faglig tirsdag i {{ d.maaned_navn }} {{ d.aar }}? Du kan hente den tilbake senere.');"
+                  >
+                    <button type="submit" class="faresone">Slett denne dagen</button>
+                  </form>
+                </div>
+              </details>
+            {% endif %}
+          {% endif %}
+        </div>
+      </article>
+    {% endif %}
+  {% endfor %}
+
+  {% if admin %}
+    <h2>Standardverdier</h2>
+    <div class="kort">
+      <p class="tom">
+        Brukes for alle dager der du ikke har satt noe eget. Endrer du dem her, følger
+        alle slike dager etter.
+      </p>
+      <form class="skjema" method="post" action="/innstillinger">
+        <input type="hidden" name="retur_aar" value="{{ aar }}" />
+        <div class="rad">
+          <div>
+            <label>Fra
+              <input type="time" name="standard_start" value="{{ innstilling.standard_start }}" />
+            </label>
+          </div>
+          <div>
+            <label>Til
+              <input type="time" name="standard_slutt" value="{{ innstilling.standard_slutt }}" />
+            </label>
+          </div>
+          <div style="flex: 2;">
+            <label>Sted
+              <input type="text" name="standard_sted" value="{{ innstilling.standard_sted }}" />
+            </label>
+          </div>
+        </div>
+        <div class="skjema-bunn">
+          <button type="submit" class="primær">Lagre standardverdier</button>
+        </div>
+      </form>
+    </div>
+
+    <h2>Sikkerhetskopi</h2>
+    <div class="kort">
+      <p class="tom">
+        Last ned alt som er lagt inn, eller les inn igjen en tidligere fil. Måneder som
+        ikke er med i fila står urørt.
+      </p>
+      <div class="skjema-bunn">
+        <a class="knapp" href="/eksport.json">Last ned sikkerhetskopi</a>
+        <form
+          class="inline"
+          method="post"
+          action="/importer"
+          enctype="multipart/form-data"
+          onsubmit="return confirm('Lese inn fila? Måneder som finnes i den overskriver det som ligger inne nå.');"
+        >
+          <input type="file" name="fil" accept="application/json,.json" required
+                 style="font-size: 0.85rem;" />
+          <button type="submit">Les inn</button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

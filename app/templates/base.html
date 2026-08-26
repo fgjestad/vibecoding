@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block tittel %}Faglig tirsdag{% endblock %} — Raumnes</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/jpeg" href="/static/raumnes-ikon.jpg" />
+</head>
+<body>
+  <main>
+    <div class="tjeneste-header">
+      <img src="/static/raumnes-logo.png" alt="Raumnes" />
+      <span>faglig tirsdag</span>
+    </div>
+
+    <nav class="meny">
+      <div>
+        <a href="/" {% if aktiv == "oversikt" %}class="aktiv-lenke"{% endif %}>Oversikt</a> ·
+        <a href="/hjelp" {% if aktiv == "hjelp" %}class="aktiv-lenke"{% endif %}>Google Kalender</a>
+      </div>
+      <div>
+        {% if admin %}
+          <span class="rolle">Innlogget som redaktør</span>
+          <form class="inline" method="post" action="/logg-ut">
+            <button type="submit" class="lenkeknapp">Logg ut</button>
+          </form>
+        {% else %}
+          <a href="/logg-inn">Logg inn</a>
+        {% endif %}
+      </div>
+    </nav>
+
+    {% if passord_mangler %}
+      <p class="varsel">
+        <strong>ADMIN_PASSORD er ikke satt.</strong> Ingen kan logge inn og redigere før
+        miljøvariabelen er på plass. Se README for oppsett.
+      </p>
+    {% endif %}
+
+    {% block innhold %}{% endblock %}
+
+    <footer>
+      Tredje tirsdag i måneden · Raumnes ·
+      <a href="/kalender.ics">kalenderfil</a>
+    </footer>
+  </main>
+</body>
+</html>
