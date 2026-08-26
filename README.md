@@ -16,6 +16,31 @@ deler ingenting annet enn git-repoet.
 
 ---
 
+## Arbeidsflyt: GitHub → Render
+
+Samme flyt som kalendergeneratoren, bare på en annen branch og en annen tjeneste.
+GitHub er mellomlageret — ingenting legges ut på Render utenom veien om branchen:
+
+```
+du endrer noe  →  branchen claude/faglig-tirsdag-calendar-tzsm0p  →  Render bygger  →  live
+                  (GitHub)                                           (automatisk)
+```
+
+Det er nok å legge noe på branchen — laste opp filer i GitHub-nettsiden, pushe fra
+en maskin, eller la Claude pushe. Render lytter på branchen og starter et bygg av
+seg selv innen noen sekunder. Du trenger aldri trykke på noe i Render.
+
+| | Faglig tirsdag | Kalendergeneratoren |
+| --- | --- | --- |
+| Branch | `claude/faglig-tirsdag-calendar-tzsm0p` | `claude/github-integration-setup-st0ca4` |
+| Render-tjeneste | `raumnes-faglig-tirsdag` | `raumnes-arrangementer` |
+| Disk | egen | egen |
+
+De to tjenestene lytter på hver sin branch. Et bygg av den ene rører aldri den andre,
+og databasene ligger på hver sin disk.
+
+---
+
 ## Sette opp på Render
 
 Dette gjør du én gang. Regn med et kvarter.
@@ -77,11 +102,19 @@ Første bygg tar noen minutter. Når det står **Live**, ligger appen på
 > i dette repoet. Da settes alt opp automatisk, og du fyller bare inn `ADMIN_PASSORD`.
 > Velg branchen over når Render spør.
 
-### 5. Senere endringer
+### 5. Sjekk at automatisk utlegging er på
 
-Hver gang det pushes til branchen `claude/faglig-tirsdag-calendar-tzsm0p`, bygger
-Render appen på nytt av seg selv. Kalendergeneratoren står på sin egen branch og
-merker ingenting.
+Gå til tjenesten → **Settings** → **Build & Deploy**:
+
+- **Repository:** `fgjestad/vibecoding`
+- **Branch:** `claude/faglig-tirsdag-calendar-tzsm0p`
+- **Auto-Deploy:** `On Commit` *(dette er det som gjør at GitHub-pushen utløser bygget)*
+
+Auto-Deploy står på som standard, men det er verdt å se at branchen er riktig — står
+det `main` her, skjer det ingenting når du legger noe på arbeidsbranchen.
+
+Deretter er du ferdig: legg noe på branchen, og se at det dukker opp et nytt bygg
+under **Events** i Render.
 
 ---
 

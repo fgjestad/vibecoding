@@ -1,11 +1,16 @@
 # Egen Render-tjeneste for Faglig tirsdag, atskilt fra kalendergeneratoren:
 # eget tjenestenavn, egen branch og egen disk. De to appene deler kun git-repo.
+#
+# Arbeidsflyten er GitHub som mellomlagring: alt som havner på branchen under,
+# bygges og legges ut av Render automatisk. Ingenting deployes forbi GitHub.
 services:
   - type: web
     name: raumnes-faglig-tirsdag
     runtime: python
     plan: starter
+    repo: https://github.com/fgjestad/vibecoding
     branch: claude/faglig-tirsdag-calendar-tzsm0p
+    autoDeploy: true
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     disk:
