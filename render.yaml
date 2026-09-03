@@ -15,7 +15,7 @@ services:
       - key: DATABASE_URL
         value: sqlite:////data/data.db
       - key: APP_BRUKER
-        value: raumnes
+        value: admin
       - key: APP_PASSORD
         sync: false
       - key: APP_BRUKER_JOURNALIST

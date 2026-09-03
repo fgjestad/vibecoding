@@ -19,7 +19,7 @@ def sjekk_passord(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     appen starter uten passord satt). Journalist-innlogging (APP_BRUKER_JOURNALIST/
     APP_PASSORD_JOURNALIST) er valgfri — hvis disse ikke er satt i miljøvariablene, finnes
     det rett og slett ingen journalist-pålogging ennå."""
-    admin_bruker = os.environ.get("APP_BRUKER", "raumnes")
+    admin_bruker = os.environ.get("APP_BRUKER", "admin")
     admin_passord = os.environ.get("APP_PASSORD")
     if not admin_passord:
         raise HTTPException(

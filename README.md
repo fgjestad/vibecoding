@@ -12,7 +12,7 @@ export $(cat .env | grep -v '^#' | xargs)
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-Åpne http://127.0.0.1:8000 (brukernavn: verdien av `APP_BRUKER`, standard `raumnes`; passord: `APP_PASSORD`).
+Åpne http://127.0.0.1:8000 (brukernavn: verdien av `APP_BRUKER`, standard `admin`; passord: `APP_PASSORD`).
 
 ## Brukerroller: admin og journalist
 
