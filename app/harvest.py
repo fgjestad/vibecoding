@@ -1373,7 +1373,9 @@ og mønstre du faktisk fant — ikke gjett eller anta noe du ikke har verifisert
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            # 2048 fordi rapporten i praksis blir lengre enn "maks 10 linjer" ber om, og en
+            # avkuttet rapport ser ut som en ferdig rapport — den mister bare konklusjonen.
+            max_tokens=2048,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
