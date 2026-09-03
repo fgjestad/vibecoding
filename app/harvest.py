@@ -16,7 +16,13 @@ import icalendar
 import recurring_ical_events
 from anthropic import Anthropic
 
-MODEL = os.environ.get("ANTHROPIC_MODEL_INNHOSTING", "claude-haiku-4-5-20251001")
+# Modellen som brukes til innhøsting (uttrekk av arrangementer fra kilder). Egen variabel
+# fra ANTHROPIC_MODEL, slik at innhøsting og artikkelskriving kan kjøres på hver sin modell
+# uten kodeendring. Begge står nå på Sonnet: et forsøk på å spare penger med Haiku 4.5 ble
+# reversert fordi den modellgenerasjonen ikke støtter API-funksjonene resten av koden bruker
+# (verken output_config.effort eller web_fetch_20260209, som krever programmatic tool
+# calling) — og to av web_fetch-kallene svelger feil stille, så bruddet var usynlig i drift.
+MODEL = os.environ.get("ANTHROPIC_MODEL_INNHOSTING", "claude-sonnet-5")
 
 UKEDAGER = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
 
@@ -889,6 +895,7 @@ Svar KUN med et gyldig JSON-objekt, ingen tekst før eller etter, med nøklene:
         response = client.messages.create(
             model=MODEL,
             max_tokens=1024,
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
@@ -1117,6 +1124,7 @@ denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står
         response = client.messages.create(
             model=MODEL,
             max_tokens=4096,
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
@@ -1269,6 +1277,7 @@ def _hent_fra_kilde_via_web_fetch_med_diagnose(kilde_url: str, instruks: str) ->
             model=MODEL,
             max_tokens=4096,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as e:
@@ -1310,6 +1319,7 @@ linjen helt.
             model=MODEL,
             max_tokens=4096,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
@@ -1365,6 +1375,7 @@ og mønstre du faktisk fant — ikke gjett eller anta noe du ikke har verifisert
             model=MODEL,
             max_tokens=1024,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as e:
@@ -1415,6 +1426,7 @@ oppgitt over, skriv kun ordet INGEN_NY_INFO i stedet for tekst.
             model=MODEL,
             max_tokens=4096,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5}],
+            output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
@@ -1465,6 +1477,7 @@ def hent_fra_bilde(
     response = client.messages.create(
         model=MODEL,
         max_tokens=4096,
+        output_config={"effort": "medium"},
         messages=[
             {
                 "role": "user",
@@ -1509,6 +1522,7 @@ papiravisen). Se gjennom dokumentet og hent ut arrangementene som er omtalt.
     response = client.messages.create(
         model=MODEL,
         max_tokens=4096,
+        output_config={"effort": "medium"},
         messages=[
             {
                 "role": "user",
@@ -1562,6 +1576,7 @@ eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene 
     response = client.messages.create(
         model=MODEL,
         max_tokens=4096,
+        output_config={"effort": "medium"},
         messages=[{"role": "user", "content": prompt}],
     )
 

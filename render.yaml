@@ -27,4 +27,4 @@ services:
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-5
       - key: ANTHROPIC_MODEL_INNHOSTING
-        value: claude-haiku-4-5-20251001
+        value: claude-sonnet-5
