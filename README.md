@@ -108,6 +108,24 @@ lyduttrekk er 240p like god som 1080p, men en brøkdel så stor.
 Merk at API-et har en ratebegrensning på 1 forespørsel i sekundet (3 for
 enterprise-organisasjoner).
 
+### Flowplayers egen transkribering
+
+Workspacet har `Enable transcriptions` og `Transcribe new videos automatically`
+påslått med norsk som språk, så møteopptakene har som regel allerede et
+transkript liggende som undertekst.
+
+**Den brukes ikke som standard.** Erfaringen i redaksjonen er at kvaliteten er
+for svak til å bygge journalistikk på, og den mangler dessuten
+taleridentifikasjon og ord-nivå tidsstempler.
+
+Den er implementert av én grunn: som gratis målestokk. Kjør samme møte med og
+uten, og du har en konkret sammenligning mot en ekte ASR-motor i stedet for en
+antakelse.
+
+```bash
+USE_EXISTING_SUBTITLES=true npm run kjor -- <video-id>
+```
+
 ### Kapittelmarkører
 
 `GET /v3/videos/{id}` returnerer `chapters` med tidspunkt og tittel. Merkes

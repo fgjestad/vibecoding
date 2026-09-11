@@ -4,6 +4,8 @@ import { vocabularyFrom } from "../src/steps/roster.js";
 import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
 import { pickEncoding } from "../src/providers/video/flowplayer.js";
+import { parseVtt } from "../src/steps/subtitles.js";
+import { pickNorwegian } from "../src/pipeline.js";
 import type { AudioArtifact, Roster } from "../src/types.js";
 
 const roster: Roster = {
@@ -77,4 +79,62 @@ test("formater uten mediefil-URL hoppes over", () => {
 
 test("tom liste gir undefined i stedet for å kaste", () => {
   assert.equal(pickEncoding([]), undefined);
+});
+
+// --- WebVTT-parsing --------------------------------------------------------
+
+const VTT = `WEBVTT
+
+1
+00:00:12.400 --> 00:00:24.100
+Da ønsker jeg velkommen til
+formannskapsmøtet.
+
+00:00:25.000 --> 00:00:58.300
+<v Per Hansen>Takk, ordfører.
+
+2
+00:01:39.000 --> 00:02:08.400
+Jeg vil advare mot å vedta dette.
+`;
+
+test("VTT-parsing tar tid, flerlinjet tekst og talermerking", () => {
+  const s = parseVtt(VTT);
+  assert.equal(s.length, 3);
+
+  assert.equal(s[0]!.start, 12.4);
+  assert.equal(s[0]!.end, 24.1);
+  assert.equal(s[0]!.text, "Da ønsker jeg velkommen til formannskapsmøtet.",
+    "flerlinjede replikker slås sammen til én");
+  assert.equal(s[0]!.speaker, null);
+
+  assert.equal(s[1]!.speaker, "Per Hansen", "<v ...> gir taler når den finnes");
+  assert.equal(s[1]!.text, "Takk, ordfører.");
+
+  assert.equal(s[2]!.start, 99, "1:39 blir 99 sekunder");
+});
+
+test("undertekster later ikke som de har ord-nivå tidsstempler", () => {
+  for (const seg of parseVtt(VTT)) {
+    assert.deepEqual(seg.words, [], "tomt er ærligere enn oppdiktede ordtider");
+  }
+});
+
+test("komma som desimalskilletegn og kort millisekunddel tolkes riktig", () => {
+  const s = parseVtt("WEBVTT\n\n00:00:01,5 --> 00:00:02,25\nHei\n");
+  assert.equal(s[0]!.start, 1.5, '",5" er 500 ms, ikke 5 ms');
+  assert.equal(s[0]!.end, 2.25);
+});
+
+test("norsk undertekst velges, andre språk ignoreres", () => {
+  assert.equal(
+    pickNorwegian([
+      { language: "en", url: "https://x/en.vtt" },
+      { language: "no", url: "https://x/no.vtt" },
+    ])?.language,
+    "no",
+  );
+  assert.equal(pickNorwegian([{ language: "en", url: "https://x/en.vtt" }]), undefined);
+  assert.equal(pickNorwegian([]), undefined);
+  assert.equal(pickNorwegian(undefined), undefined);
 });

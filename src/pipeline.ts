@@ -12,6 +12,7 @@ import { ArtifactStore } from "./store/artifacts.js";
 import { pickExtractor } from "./steps/audio.js";
 import { parseRoster } from "./steps/roster.js";
 import { transcribe } from "./steps/transcribe.js";
+import { transcriptFromSubtitleUrl } from "./steps/subtitles.js";
 import { matchSpeakers } from "./steps/speakers.js";
 import { placeAgenda } from "./steps/agenda.js";
 import { writeArticle } from "./steps/article.js";
@@ -43,6 +44,15 @@ export function makeVideo(cfg: Config): VideoSource {
     : new FlowplayerSource({
         apiKey: req(cfg.flowplayer.apiKey, "FLOWPLAYER_API_KEY"),
       });
+}
+
+/** Velger norsk undertekst. Bokmål og nynorsk er begge greit; "no" er
+ *  det Flowplayer bruker når språket er satt til Norwegian. */
+export function pickNorwegian(
+  subs: { language: string; url: string }[] | undefined,
+): { language: string; url: string } | undefined {
+  if (!subs?.length) return undefined;
+  return subs.find((s) => /^(no|nb|nn)\b/i.test(s.language));
 }
 
 function req(v: string | undefined, navn: string): string {
@@ -102,7 +112,6 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
       log("Ingen deltakerliste oppgitt – hopper over ordliste og navnemapping.");
     }
 
-    // 2. Lyd.
     job.status = "henter-lyd";
     await store.save(job);
     const media = await makeVideo(cfg).resolve(job.video);
@@ -112,35 +121,60 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
     }
     if (media.existingSubtitles?.length) {
       log(
-        `  Merk: videoen har allerede undertekster ` +
-          `(${media.existingSubtitles.map((s) => s.language).join(", ")})`,
+        `  Videoen har allerede undertekster: ` +
+          `${media.existingSubtitles.map((s) => s.language).join(", ")}`,
       );
     }
-    const extractor = await pickExtractor(media.durationSec ?? 420);
-    log(
-      `Henter lyd fra ${media.hasSeparateAudio ? "egen lydrendisjon" : "mediestrøm"} ` +
-        `(${extractor.name}) ...`,
-    );
-    job.audio = await extractor.extract(
-      media,
-      store.audioPath(job.id),
-      cfg.audioBitrate,
-    );
-    log(
-      `  ${(job.audio.sizeBytes / 1048576).toFixed(1)} MB, ` +
-        `${Math.round(job.audio.durationSec / 60)} min`,
-    );
 
-    // 3. Transkripsjon.
-    job.status = "transkriberer";
-    await store.save(job);
-    const asr = makeASR(cfg);
-    log(`Transkriberer med ${asr.name} ...`);
-    job.transcript = await transcribe(asr, job.audio, job.roster);
-    log(
-      `  ${job.transcript.segments.length} segmenter, ` +
-        `tidsstempler: ${job.transcript.timestampQuality}`,
-    );
+    // Flowplayer transkriberer nye videoer automatisk på norsk, men
+    // kvaliteten er erfaringsmessig for svak til å bygge journalistikk på.
+    // Derfor AV som standard. Slå på med USE_EXISTING_SUBTITLES=true når du
+    // vil ha en gratis målestokk å sammenligne en ekte ASR-motor mot på det
+    // samme møtet.
+    const ferdig = cfg.useExistingSubtitles
+      ? pickNorwegian(media.existingSubtitles)
+      : undefined;
+
+    if (ferdig) {
+      job.status = "transkriberer";
+      await store.save(job);
+      log(`Bruker Flowplayers ferdige transkript (${ferdig.language}) ...`);
+      job.transcript = await transcriptFromSubtitleUrl(
+        ferdig.url,
+        ferdig.language,
+        media.durationSec,
+      );
+      log(
+        `  ${job.transcript.segments.length} replikker, ingen taleridentifikasjon, ` +
+          `tidsstempler: omtrentlige`,
+      );
+      log("  NB: referansetranskript til sammenligning – ikke publiseringskvalitet.");
+    } else {
+      const extractor = await pickExtractor(media.durationSec ?? 420);
+      log(
+        `Henter lyd fra ${media.hasSeparateAudio ? "egen lydrendisjon" : "mediestrøm"} ` +
+          `(${extractor.name}) ...`,
+      );
+      job.audio = await extractor.extract(
+        media,
+        store.audioPath(job.id),
+        cfg.audioBitrate,
+      );
+      log(
+        `  ${(job.audio.sizeBytes / 1048576).toFixed(1)} MB, ` +
+          `${Math.round(job.audio.durationSec / 60)} min`,
+      );
+
+      job.status = "transkriberer";
+      await store.save(job);
+      const asr = makeASR(cfg);
+      log(`Transkriberer med ${asr.name} ...`);
+      job.transcript = await transcribe(asr, job.audio, job.roster);
+      log(
+        `  ${job.transcript.segments.length} segmenter, ` +
+          `tidsstempler: ${job.transcript.timestampQuality}`,
+      );
+    }
 
     // 4. Talere og saker.
     if (job.roster) {
