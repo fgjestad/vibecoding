@@ -41,8 +41,7 @@ export function makeVideo(cfg: Config): VideoSource {
   return cfg.videoProvider === "mock"
     ? new MockVideoSource(cfg.mockVideo)
     : new FlowplayerSource({
-        workspaceId: req(cfg.flowplayer.workspaceId, "FLOWPLAYER_WORKSPACE_ID"),
-        apiToken: req(cfg.flowplayer.apiToken, "FLOWPLAYER_API_TOKEN"),
+        apiKey: req(cfg.flowplayer.apiKey, "FLOWPLAYER_API_KEY"),
       });
 }
 
@@ -107,6 +106,16 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
     job.status = "henter-lyd";
     await store.save(job);
     const media = await makeVideo(cfg).resolve(job.video);
+    if (media.title) log(`  "${media.title}"`);
+    if (media.chapters?.length) {
+      log(`  ${media.chapters.length} kapittelmarkører fra Flowplayer`);
+    }
+    if (media.existingSubtitles?.length) {
+      log(
+        `  Merk: videoen har allerede undertekster ` +
+          `(${media.existingSubtitles.map((s) => s.language).join(", ")})`,
+      );
+    }
     const extractor = await pickExtractor(media.durationSec ?? 420);
     log(
       `Henter lyd fra ${media.hasSeparateAudio ? "egen lydrendisjon" : "mediestrøm"} ` +
@@ -141,7 +150,12 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
       const sikre = job.speakers.filter((s) => s.confidence >= 0.8).length;
       log(`  ${job.speakers.length} talere, ${sikre} med høy konfidens`);
 
-      job.roster.agenda = await placeAgenda(claude, job.transcript, job.roster);
+      job.roster.agenda = await placeAgenda(
+        claude,
+        job.transcript,
+        job.roster,
+        media.chapters,
+      );
       const plassert = job.roster.agenda.filter((a) => a.startSec !== undefined).length;
       log(`  ${plassert} av ${job.roster.agenda.length} saker plassert på tidslinja`);
 

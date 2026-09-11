@@ -92,10 +92,32 @@ på Cloud Run med GPU — den bryter ikke med Google-valget.
 - Talere utenfor deltakerlista (innledere, eksterne, spørretimen) får alltid
   en fritekst-utvei. Det lukkede settet er et hjelpemiddel, ikke en tvangstrøye.
 
+## Flowplayer
+
+Oppslaget er implementert mot OVP API v3. Journalisten limer inn video-ID-en,
+og `GET /v3/videos/{id}` gir tittel, varighet, mediefiler og kapittelmarkører.
+
+```
+FLOWPLAYER_API_KEY=...    # header: x-flowplayer-api-key
+```
+
+Av mediefilene velges HLS først — ligger lyden som egen rendisjon i manifesten,
+laster ffmpeg kun lydsegmentene. Finnes ikke HLS, velges laveste bitrate: for
+lyduttrekk er 240p like god som 1080p, men en brøkdel så stor.
+
+Merk at API-et har en ratebegrensning på 1 forespørsel i sekundet (3 for
+enterprise-organisasjoner).
+
+### Kapittelmarkører
+
+`GET /v3/videos/{id}` returnerer `chapters` med tidspunkt og tittel. Merkes
+møtene per sak i Flowplayer, er saksinndelingen allerede gjort av et menneske
+— og den vektes tyngre enn noe systemet kan utlede fra transkriptet.
+
 ## Neste steg
 
 - [ ] Verifiser Google STT-kombinasjonen over
-- [ ] Koble på Flowplayer OVP-API (`src/providers/video/flowplayer.ts`)
+- [x] Koble på Flowplayer OVP-API (`src/providers/video/flowplayer.ts`)
 - [ ] Koble på Gemini (`src/providers/asr/gemini.ts`)
 - [ ] Webapp: opplasting, navnebekreftelse, artikkelvisning med klikkbare kilder
 - [ ] v2.0: hent saksdokumenter fra kommunens møtekalender som artikkelkontekst

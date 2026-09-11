@@ -5,7 +5,7 @@ export interface Config {
   vertex?: { projectId: string; region: string };
   asrProvider: "mock" | "gemini" | "google-stt";
   videoProvider: "mock" | "flowplayer";
-  flowplayer: { workspaceId: string; apiToken: string };
+  flowplayer: { workspaceId: string; apiKey: string };
   geminiModel: string;
   /** Opus-bitrate. 24k er standardvalget: 4 timer blir ~43 MB, og de 14 MB
    *  ekstra over 16k er billig forsikring på gjenkjenningskvalitet. */
@@ -26,7 +26,7 @@ export function loadConfig(env = process.env): Config {
     videoProvider: (env.VIDEO_PROVIDER ?? "mock") as Config["videoProvider"],
     flowplayer: {
       workspaceId: env.FLOWPLAYER_WORKSPACE_ID ?? "",
-      apiToken: env.FLOWPLAYER_API_TOKEN ?? "",
+      apiKey: env.FLOWPLAYER_API_KEY ?? "",
     },
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.5-pro",
     audioBitrate: env.AUDIO_BITRATE ?? "24k",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ClaudeClient } from "../providers/llm/claude.js";
 import type { AgendaItem, Roster, Transcript } from "../types.js";
+import type { Chapter } from "../providers/video/index.js";
 
 const AgendaSchema = z.object({
   items: z.array(
@@ -35,6 +36,7 @@ export async function placeAgenda(
   claude: ClaudeClient,
   transcript: Transcript,
   roster: Roster,
+  chapters?: Chapter[],
 ): Promise<AgendaItem[]> {
   if (roster.agenda.length === 0) return [];
 
@@ -43,6 +45,15 @@ export async function placeAgenda(
     .join("\n");
 
   const sakskart = roster.agenda.map((a) => `  ${a.ref}: ${a.title}`).join("\n");
+
+  // Kapittelmarkører fra videoplattformen er satt av et menneske og slår
+  // enhver utledning fra transkriptet. Finnes de, er de fasiten.
+  const markorer = chapters?.length
+    ? `Kapittelmarkører satt i videoplattformen (disse er satt manuelt og ` +
+      `skal vektes tyngre enn det du leser deg til i transkriptet):\n` +
+      chapters.map((c) => `  [${c.startsAt}] ${c.title}`).join("\n") +
+      "\n\n"
+    : "";
 
   const res = await claude.structured({
     schema: AgendaSchema,
@@ -53,6 +64,7 @@ export async function placeAgenda(
         type: "text",
         text:
           `Sakskart:\n${sakskart}\n\n` +
+          markorer +
           `Transkript (sekunder i klammer):\n${oversikt}\n\n` +
           `Plasser hver sak på tidslinja.`,
       },
