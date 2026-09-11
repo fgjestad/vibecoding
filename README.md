@@ -69,14 +69,33 @@ Claude gjør alt unntatt lyd-til-tekst — dokumentparsing, talermatching,
 saksinndeling og artikkelskriving. Kjører via Vertex AI når `GCP_PROJECT` er
 satt, ellers mot Claude API direkte.
 
-## Før Google STT kobles på — verifiser denne kombinasjonen
+## Google STT-sjekklista
 
-Hvert krav er dekket for seg. Det er skjæringspunktet som må bekreftes:
+Status per 2026-09-11, fra Googles dokumentasjon:
 
-1. Hvilken modellvariant dekker norsk (`no-NO`/`nb-NO`) i batch-modus?
-2. Støtter *den* varianten diarisering?
-3. Gir den ord-nivå tidsstempler og konfidens?
-4. Kjører den i `europe-north1`, eller tvinges vi til en US-region?
+| Spørsmål | Svar |
+|---|---|
+| Modell | **`chirp_3`**, kun i Speech-to-Text **API v2** |
+| Diarisering | Ja — men **bare i `BatchRecognize` og `Recognize`**, ikke streaming |
+| Ord-tidsstempler | Ja, men må slås på eksplisitt — og Google varsler at det gir *noe* kvalitetstap |
+| EU-region | **`eu` (multiregion) er GA.** `europe-west2`/`west3` er Preview. `europe-north1` er ikke nevnt |
+| Norsk **med** diarisering | **Uavklart** — språklista er ikke gjengitt i kildene |
+
+Vi er batch, så diariseringsbegrensningen treffer oss ikke. `eu` dekker
+EU-kravet. Det ene som gjenstår er om norsk står på diariseringslista.
+
+Det avgjøres ikke ved å lese mer dokumentasjon, men ved å spørre API-et:
+
+```bash
+./scripts/sjekk-google-stt.sh moete-utdrag.opus <gcp-prosjekt> eu
+```
+
+Skriptet ber om alt samtidig — norsk, `chirp_3`, diarisering og
+ord-tidsstempler i EU. Går det gjennom, er alle spørsmålene besvart. Feiler
+det, sier feilmeldingen hvilket krav som ikke holdt, og skriptet forklarer
+hva du gjør videre.
+
+Ti minutter lyd holder. Feilmodusene viser seg med én gang.
 
 Faller det ut dårlig, er reserveløsningen NB-Whisper fra Nasjonalbiblioteket
 på Cloud Run med GPU — den bryter ikke med Google-valget.
