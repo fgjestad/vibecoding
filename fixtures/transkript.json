@@ -1,0 +1,44 @@
+{
+  "language": "no-NO",
+  "engine": "mock",
+  "engineVersion": "fixture-1",
+  "timestampQuality": "exact",
+  "durationSec": 420,
+  "segments": [
+    {
+      "start": 12.4, "end": 24.1, "speaker": "SPEAKER_00",
+      "text": "Da ønsker jeg velkommen til formannskapsmøtet. Vi går rett på sak 45 over 25, detaljregulering for Storgata 4. Kommunedirektøren, vil du innlede?",
+      "words": [{ "w": "Da", "start": 12.4, "end": 12.6, "conf": 0.99 }]
+    },
+    {
+      "start": 25.0, "end": 58.3, "speaker": "SPEAKER_01",
+      "text": "Takk, ordfører. Saken gjelder omregulering fra næring til kombinert formål med bolig. Administrasjonen innstiller på å vedta planen. Vi har mottatt tre merknader i høringsrunden, hvorav én fra Statsforvalteren om støyforhold.",
+      "words": [{ "w": "Takk", "start": 25.0, "end": 25.3, "conf": 0.98 }]
+    },
+    {
+      "start": 59.0, "end": 96.7, "speaker": "SPEAKER_02",
+      "text": "Jeg vil advare mot å vedta dette før vi har sett et fullstendig kostnadsoverslag for infrastrukturen. Vi har ikke fått tallene for vann og avløp, og da mener jeg vi fatter et vedtak i blinde.",
+      "words": [{ "w": "Jeg", "start": 59.0, "end": 59.2, "conf": 0.97 }]
+    },
+    {
+      "start": 97.5, "end": 131.2, "speaker": "SPEAKER_03",
+      "text": "Representanten Berg har et poeng om tallene, men jeg mener vi ikke kan utsette dette igjen. Saken har ligget i to år. Boligbehovet i sentrum er reelt, og utbygger har ventet lenge nok.",
+      "words": [{ "w": "Representanten", "start": 97.5, "end": 98.3, "conf": 0.94 }]
+    },
+    {
+      "start": 132.0, "end": 168.4, "speaker": "SPEAKER_02",
+      "text": "Å vente to år er ikke et argument for å hoppe over saksbehandlingen. Jeg fremmer forslag om å utsette saken til kostnadsoverslaget foreligger.",
+      "words": [{ "w": "Å", "start": 132.0, "end": 132.1, "conf": 0.91 }]
+    },
+    {
+      "start": 169.0, "end": 201.8, "speaker": "SPEAKER_00",
+      "text": "Da har vi et utsettelsesforslag fra Berg. Vi tar votering. De som stemmer for utsettelse... Forslaget falt med fire mot tre stemmer. Da går vi til votering over innstillingen.",
+      "words": [{ "w": "Da", "start": 169.0, "end": 169.2, "conf": 0.99 }]
+    },
+    {
+      "start": 202.5, "end": 228.0, "speaker": "SPEAKER_00",
+      "text": "Innstillingen er vedtatt med fem mot to stemmer. Da er sak 45 over 25 ferdigbehandlet, og vi går videre til sak 46 over 25.",
+      "words": [{ "w": "Innstillingen", "start": 202.5, "end": 203.2, "conf": 0.96 }]
+    }
+  ]
+}

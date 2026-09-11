@@ -1,1 +1,101 @@
-# vibecoding
+# møteskriver
+
+Transkriberer kommunale møteopptak fra Flowplayer og skriver artikkelutkast
+med kildeforankring tilbake til videoen.
+
+**Status: v1.0 under arbeid.** Hele pipelinen kjører på mocks — uten GCP,
+uten Flowplayer-token, uten ffmpeg. De eksterne koblingene er stubbet bak
+grensesnitt og fylles inn når tilgangene er på plass.
+
+```bash
+npm install
+npm run kjor -- 2eaf68dc-efe6-4a01-8838-614722592494
+```
+
+## Slik henger det sammen
+
+```
+Flowplayer video-ID  →  manifest via OVP-API
+                     →  ffmpeg            → lyd.opus (mono 16 kHz)
+                     →  ASR               → transkript.json   ← fasit
+                     →  Claude            → talere, saksinndeling, artikkel
+innkalling.pdf       →  Claude            → deltakere + sakskart + ordliste
+```
+
+Journalisten limer inn video-ID-en og laster opp innkallingen. To handlinger.
+
+## Fire designvalg som bærer resten
+
+**Lyden trekkes ut før opplasting.** All talegjenkjenning resampler internt
+til 16 kHz mono, så alt utover det kastes uansett. En 4-timers video på 2 GB
+blir ~43 MB Opus — 98 % mindre, og en opplasting som ikke ryker på 80 %.
+Ligger lyden som egen rendisjon i HLS-manifesten, lastes videobytene aldri ned.
+
+**Deltakerlista leses først, ikke sist.** Det intuitive er å bruke den til å
+sette navn på talerne til slutt. Men navnelista er ordlista
+talegjenkjenningen skal biases med — egennavn er nettopp det ASR bommer på, og
+en deltakerliste er en ferdig kuratert liste over de navnene som blir sagt
+hundre ganger i møtet. Samme dokument gir sakskartet gratis.
+
+**`transkript.json` er eneste sannhet.** Produseres én gang, gjenbrukes av alle
+senere steg. Journalisten kan kjøre fem forskjellige artikkelprompter mot
+samme transkript uten å transkribere fire timer om igjen. Ord-nivå
+tidsstempler og konfidens ligger der fra start — det er vondt å ettermontere,
+og det er verifiseringsmekanismen hele produktet hviler på.
+
+**Fakta og slutninger holdes fra hverandre.** `Roster` er et faktum om møtet.
+`SpeakerMapping` er en slutning om hvem SPEAKER_03 er. Da kan slutningen
+gjøres om igjen uten å røre faktaene, og i v2.0 byttes faktakilden til
+automatisk henting uten at noe annet endres.
+
+## Motorvalg
+
+Alt eksternt ligger bak et grensesnitt med en mock, så pipelinen kan kjøres
+og testes uten tilganger.
+
+| | Runde 1 | Runde 2 |
+|---|---|---|
+| Talegjenkjenning | Gemini (Vertex) | Google Cloud Speech-to-Text |
+| Tidsstempler | omtrentlige | målte, ord-nivå |
+| Diarisering | nei | ja |
+
+Gemini er valgt til runde 1 fordi den krever minst oppsett — ett kall, ingen
+recognizer-config, ingen PhraseSet, samme prosjekt og autentisering som resten.
+Byttet til Cloud STT er **planlagt arbeid, ikke en opsjon**: tidsstemplene er
+journalistens verifiseringsverktøy, og de må være målt før dette møter en
+publisert sak.
+
+Claude gjør alt unntatt lyd-til-tekst — dokumentparsing, talermatching,
+saksinndeling og artikkelskriving. Kjører via Vertex AI når `GCP_PROJECT` er
+satt, ellers mot Claude API direkte.
+
+## Før Google STT kobles på — verifiser denne kombinasjonen
+
+Hvert krav er dekket for seg. Det er skjæringspunktet som må bekreftes:
+
+1. Hvilken modellvariant dekker norsk (`no-NO`/`nb-NO`) i batch-modus?
+2. Støtter *den* varianten diarisering?
+3. Gir den ord-nivå tidsstempler og konfidens?
+4. Kjører den i `europe-north1`, eller tvinges vi til en US-region?
+
+Faller det ut dårlig, er reserveløsningen NB-Whisper fra Nasjonalbiblioteket
+på Cloud Run med GPU — den bryter ikke med Google-valget.
+
+## Redaksjonelle regler som ligger i koden
+
+- Ingen påstand uten `citation` med tidsstempel og ordrett sitat.
+- Ingen taler får navn i en artikkel før et menneske har satt
+  `confirmed: true`. Ubekreftede match sendes til modellen som «USIKKER», og
+  systemprompten forbyr å tilskrive uttalelser til dem.
+- En **innkalling** er skrevet før møtet og vet ikke hvem som kom;
+  `present` settes til `null`, ikke gjettes. En **protokoll** vet det.
+- Talere utenfor deltakerlista (innledere, eksterne, spørretimen) får alltid
+  en fritekst-utvei. Det lukkede settet er et hjelpemiddel, ikke en tvangstrøye.
+
+## Neste steg
+
+- [ ] Verifiser Google STT-kombinasjonen over
+- [ ] Koble på Flowplayer OVP-API (`src/providers/video/flowplayer.ts`)
+- [ ] Koble på Gemini (`src/providers/asr/gemini.ts`)
+- [ ] Webapp: opplasting, navnebekreftelse, artikkelvisning med klikkbare kilder
+- [ ] v2.0: hent saksdokumenter fra kommunens møtekalender som artikkelkontekst

@@ -1,0 +1,26 @@
+{
+  "name": "moteskriver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Transkriberer kommunale møteopptak og skriver artikkelutkast med kildeforankring.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "kjor": "tsx src/cli.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@anthropic-ai/vertex-sdk": "^0.19.8",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
