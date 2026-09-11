@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ClaudeClient } from "../providers/llm/claude.js";
 import type { Roster, SpeakerMapping, Transcript } from "../types.js";
+import { ambiguousSurnames } from "./roster.js";
 
 const MatchSchema = z.object({
   matches: z.array(
@@ -29,7 +30,15 @@ Regler:
   Et feil navn på et sitat er den dyreste feilen dette systemet kan gjøre,
   så gjett aldri for å fylle ut.
 - Er det flere talere enn personer som var til stede, har diariseringen
-  sannsynligvis splittet én person i to. Si fra om det i reasoning.`;
+  sannsynligvis splittet én person i to. Si fra om det i reasoning.
+
+DELTE ETTERNAVN — les dette nøye:
+Flere personer på lista kan dele etternavn, noen ganger i samme parti. Blir
+en taler bare omtalt med et slikt etternavn, er det IKKE et entydig
+holdepunkt. Da må du enten finne noe annet som skiller dem — fornavn, rolle,
+saksfelt de har ordet i — eller sette confidence under 0.5 og si i reasoning
+hvilke personer det står mellom. Gjett aldri på den ene for å slippe å være
+usikker.`;
 
 /**
  * Foreslår hvem hver SPEAKER_xx er.
@@ -67,6 +76,12 @@ export async function matchSpeakers(
     )
     .join("\n");
 
+  const delte = ambiguousSurnames(tilstede);
+  const advarsel = delte.size
+    ? `\n\nDelte etternavn på denne lista (etternavn alene skiller ikke):\n` +
+      [...delte].map(([e, n]) => `  ${e}: ${n.join(", ")}`).join("\n")
+    : "";
+
   const res = await claude.structured({
     schema: MatchSchema,
     system: SYSTEM,
@@ -77,20 +92,31 @@ export async function matchSpeakers(
         text:
           `Deltakerliste (${roster.documentKind}):\n${liste}\n\n` +
           `Talere i transkriptet (${speakers.length} stk):\n\n${proever.join("\n\n")}\n\n` +
-          `Koble hver taler til en person, eller til null med en label.`,
+          advarsel +
+          `\n\nKoble hver taler til en person, eller til null med en label.`,
       },
     ],
   });
 
-  const gyldige = new Set(roster.people.map((p) => p.id));
-  return res.matches.map((m) => ({
-    speaker: m.speaker,
+  const gyldige = new Map(roster.people.map((p) => [p.id, p.name]));
+  return res.matches.map((m) => {
     // Slipper aldri gjennom en id som ikke finnes i rosteret.
-    personId: m.personId && gyldige.has(m.personId) ? m.personId : null,
-    label: m.label ?? undefined,
-    confidence: m.confidence,
-    confirmed: false,
-  }));
+    const personId = m.personId && gyldige.has(m.personId) ? m.personId : null;
+    const navn = personId ? gyldige.get(personId)! : "";
+    const etternavn = navn.split(/\s+/).slice(-1)[0] ?? "";
+
+    // Hviler treffet på et etternavn flere deler, settes det tak på
+    // konfidensen uansett hvor sikker modellen sier den er. Mennesket
+    // skal se at dette er et valg mellom flere, ikke et faktum.
+    const usikkert = delte.has(etternavn);
+    return {
+      speaker: m.speaker,
+      personId,
+      label: m.label ?? undefined,
+      confidence: usikkert ? Math.min(m.confidence, 0.49) : m.confidence,
+      confirmed: false,
+    };
+  });
 }
 
 function fmt(s: number): string {

@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { vocabularyFrom } from "../src/steps/roster.js";
+import { vocabularyFrom, ambiguousSurnames } from "../src/steps/roster.js";
 import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
 import { pickEncoding } from "../src/providers/video/flowplayer.js";
@@ -137,4 +138,53 @@ test("norsk undertekst velges, andre språk ignoreres", () => {
   assert.equal(pickNorwegian([{ language: "en", url: "https://x/en.vtt" }]), undefined);
   assert.equal(pickNorwegian([]), undefined);
   assert.equal(pickNorwegian(undefined), undefined);
+});
+
+// --- Delte etternavn (ekte data fra Nes kommunestyre) ----------------------
+
+test("delte etternavn fanges opp, også innad i samme parti", () => {
+  const nes = JSON.parse(readFileSync("./rosters/nes.json", "utf8"));
+  const delte = ambiguousSurnames(nes.people);
+
+  // Verste tilfelle: samme etternavn OG samme parti – partitilhørighet
+  // skiller dem ikke engang.
+  assert.deepEqual(delte.get("Tømte")?.sort(),
+    ["Anne Grethe Tømte", "Sondre Tømte"]);
+  assert.deepEqual(delte.get("Roterud")?.sort(),
+    ["Simen Roterud", "Tom Roterud"]);
+  assert.deepEqual(delte.get("Aavik")?.sort(),
+    ["Karoline Aavik", "Trond Aavik"]);
+
+  // Tre personer, tre partier.
+  assert.equal(delte.get("Johansen")?.length, 3);
+  assert.equal(delte.get("Lunder")?.length, 3);
+});
+
+test("entydige etternavn markeres ikke som delte", () => {
+  const nes = JSON.parse(readFileSync("./rosters/nes.json", "utf8"));
+  const delte = ambiguousSurnames(nes.people);
+  assert.equal(delte.has("Nyhus"), false, "ordføreren er den eneste Nyhus");
+  assert.equal(delte.has("Rønoldtangen"), false);
+});
+
+test("partinavn lagres ordrett og normaliseres ikke bort", () => {
+  const nes = JSON.parse(readFileSync("./rosters/nes.json", "utf8"));
+  const geir = nes.people.find((p: any) => p.name === "Geir Antonsen");
+  assert.equal(geir.party, "Uavhengig/Høyre",
+    "en uavhengig utbryter er ikke Høyre – det ville vært feil i en artikkel");
+  assert.equal(geir.partyShort, null, "ingen kort form der den ville villede");
+
+  const ketil = nes.people.find((p: any) => p.name === "Ketil Rønneberg");
+  assert.equal(ketil.party, "Fellesliste for SV og Rødt");
+  assert.equal(ketil.partyShort, null);
+});
+
+test("ingen kontaktopplysninger lagres om folkevalgte", () => {
+  const nes = JSON.parse(readFileSync("./rosters/nes.json", "utf8"));
+  for (const p of nes.people) {
+    assert.deepEqual(
+      Object.keys(p).filter((k) => /phone|mail|tlf|epost/i.test(k)),
+      [], `${p.name} har kontaktfelt – systemet trenger bare navn, parti og rolle`,
+    );
+  }
 });

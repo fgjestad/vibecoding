@@ -126,3 +126,26 @@ export function vocabularyFrom(roster: Roster): string[] {
   for (const s of roster.agenda) ord.add(s.ref);
   return [...ord].filter((o) => o.length > 1);
 }
+
+/**
+ * Finner etternavn som deles av flere personer på lista.
+ *
+ * I et kommunestyre er dette regelen, ikke unntaket. Nes har «Tømte» to
+ * ganger i samme parti, «Roterud» to ganger i samme parti, og «Johansen»
+ * tre ganger fordelt på tre partier — der hjelper ikke engang
+ * partitilhørighet til å skille dem.
+ *
+ * Debatten er full av «representanten Hansen». Uten denne sjekken ville
+ * systemet lese det som et entydig holdepunkt og feste feil navn på et
+ * sitat — den dyreste feilen dette systemet kan gjøre.
+ */
+export function ambiguousSurnames(people: { name: string }[]): Map<string, string[]> {
+  const etter = new Map<string, string[]>();
+  for (const p of people) {
+    const deler = p.name.trim().split(/\s+/);
+    if (deler.length < 2) continue;
+    const s = deler[deler.length - 1]!;
+    etter.set(s, [...(etter.get(s) ?? []), p.name]);
+  }
+  return new Map([...etter].filter(([, navn]) => navn.length > 1));
+}

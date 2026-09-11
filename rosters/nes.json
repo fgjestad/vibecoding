@@ -1,0 +1,810 @@
+{
+  "kommune": "Nes",
+  "organ": "Kommunestyret",
+  "source": "https://innsynpluss.onacos.no/nes/kontakt/",
+  "retrieved": "2026-09-11",
+  "note": "Fast medlemsliste, ikke oppmøte for et enkelt møte. present=null for alle; hvem som faktisk møtte avgjøres av innkalling/protokoll. Kontaktopplysninger er bevisst ikke lagret – navn, parti og rolle er det systemet trenger.",
+  "people": [
+    {
+      "id": "nes-1",
+      "name": "Tove Nyhus",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Ordfører",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-2",
+      "name": "Harald Johansen",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varaordfører",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-3",
+      "name": "Anne Grethe Tømte",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-4",
+      "name": "Heidi Sann",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-5",
+      "name": "Roger Johansen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-6",
+      "name": "Rune Tranum",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-7",
+      "name": "Sondre Tømte",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-8",
+      "name": "Ståle Kjone",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-9",
+      "name": "Tone Rønoldtangen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-10",
+      "name": "Torill Delbekk Arnesen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-11",
+      "name": "Wenche Blådammen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-12",
+      "name": "Ketil Rønneberg",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-13",
+      "name": "Kirsti Fyhri Gustavsen",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-14",
+      "name": "Anita Karin Bue",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-15",
+      "name": "Dag Fleming Olsen",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-16",
+      "name": "Jan Bråthen",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-17",
+      "name": "Karoline Aavik",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-18",
+      "name": "Liv Gustavsen",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-19",
+      "name": "Trond Aavik",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-20",
+      "name": "Magne Løvaas",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-21",
+      "name": "Markus Wiederstrøm",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-22",
+      "name": "Mona Milde",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-23",
+      "name": "Ole Johan Rustad Istad",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-24",
+      "name": "Per Olin",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-25",
+      "name": "Scott Tveter",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-26",
+      "name": "Hilde Marie Bergly",
+      "party": "Kristelig Folkeparti",
+      "partyShort": "KrF",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-27",
+      "name": "Jo Inge Buskenes",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-28",
+      "name": "Siri Tronslien Lunder",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-29",
+      "name": "Eli Anne Nyerrød Kvarme",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-30",
+      "name": "Jan Stabbetorp",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-31",
+      "name": "Simen Roterud",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-32",
+      "name": "Tom Roterud",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-33",
+      "name": "Geir Antonsen",
+      "party": "Uavhengig/Høyre",
+      "partyShort": null,
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-34",
+      "name": "Torill Scharning",
+      "party": "Uavhengig/V",
+      "partyShort": null,
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-35",
+      "name": "Ole Andreas Sørli-Sidselssønn",
+      "party": "Venstre",
+      "partyShort": "V",
+      "role": "Medlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-36",
+      "name": "Bjørn Thomas Hagen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-37",
+      "name": "Emil Samir Rzaev",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-38",
+      "name": "Gerd Berg-Andersen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-39",
+      "name": "Haakon Vetle Solvik",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-40",
+      "name": "Jarle Skolbekken",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-41",
+      "name": "Olav Mæhlum",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-42",
+      "name": "Siv Anita Hagen",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-43",
+      "name": "Turid Holm Flaa",
+      "party": "Arbeiderpartiet",
+      "partyShort": "Ap",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-44",
+      "name": "Desire Peke",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-45",
+      "name": "Idun Eriksen",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-46",
+      "name": "Ranveig Randahl",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-47",
+      "name": "Silje Drengsrud",
+      "party": "Fellesliste for SV og Rødt",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-48",
+      "name": "Bente Engen",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-49",
+      "name": "Dag Donald Tveter",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-50",
+      "name": "Gina Merethe Johansen",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-51",
+      "name": "Jakob Blindheim",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-52",
+      "name": "Katrine Bolette Skogsletten",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-53",
+      "name": "Lill Solstad",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-54",
+      "name": "Morten Helbø",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-55",
+      "name": "Rolf Steffenrud",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-56",
+      "name": "Tor-Arne Aarhus",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-57",
+      "name": "Uno Henning Wahl",
+      "party": "Fremskrittspartiet",
+      "partyShort": "FrP",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-58",
+      "name": "Arild Ramstad",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-59",
+      "name": "Carmen Bratlie Bernal",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-60",
+      "name": "Erik Holm Melby",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-61",
+      "name": "Heidi Berg Smith",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-62",
+      "name": "Linda Bredesen",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-63",
+      "name": "Marius Christer Wold",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-64",
+      "name": "Martin Dokka",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-65",
+      "name": "Morten Engeflaen",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-66",
+      "name": "Rona Ann-Marie Bach-Gansmo",
+      "party": "Høyre",
+      "partyShort": "H",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-67",
+      "name": "Torgrim Lauten",
+      "party": "Industri- og næringspartiet",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-68",
+      "name": "Elisabeth Trobe Ensrud",
+      "party": "Kristelig Folkeparti",
+      "partyShort": "KrF",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-69",
+      "name": "Johny Brekke",
+      "party": "Kristelig Folkeparti",
+      "partyShort": "KrF",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-70",
+      "name": "Kari Kirkenær",
+      "party": "Kristelig Folkeparti",
+      "partyShort": "KrF",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-71",
+      "name": "Odd Istad",
+      "party": "Kristelig Folkeparti",
+      "partyShort": "KrF",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-72",
+      "name": "Andrew Mc Million",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-73",
+      "name": "Ann Margaret Grøndahl",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-74",
+      "name": "Irene Marie Hoel",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-75",
+      "name": "Johnny Derås",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-76",
+      "name": "Tove Hansen",
+      "party": "Miljøpartiet De Grønne",
+      "partyShort": "MDG",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-77",
+      "name": "Kent Idar Vermundsberget",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-78",
+      "name": "Line Skallerud Lunder",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-79",
+      "name": "Maren Hansen",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-80",
+      "name": "Ole Einar Bakke",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-81",
+      "name": "Ole Erik Lunder",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-82",
+      "name": "Sverre Rimstad",
+      "party": "Senterpartiet",
+      "partyShort": "Sp",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-83",
+      "name": "Bjørn Larshus",
+      "party": "Uavhengig/VIPartiet",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-84",
+      "name": "Eva-Elisabeth Larsgård",
+      "party": "Uavhengig/VIPartiet",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-85",
+      "name": "Ole Kristian Hansen",
+      "party": "Uavhengig/VIPartiet",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-86",
+      "name": "Per Bøhn",
+      "party": "Uavhengige",
+      "partyShort": null,
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-87",
+      "name": "Heidi Schøyen Simensen",
+      "party": "Venstre",
+      "partyShort": "V",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-88",
+      "name": "Helge Johan Dyrnes Homb",
+      "party": "Venstre",
+      "partyShort": "V",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    },
+    {
+      "id": "nes-89",
+      "name": "Tom Fidje",
+      "party": "Venstre",
+      "partyShort": "V",
+      "role": "Varamedlem",
+      "group": "folkevalgt",
+      "present": null
+    }
+  ]
+}
