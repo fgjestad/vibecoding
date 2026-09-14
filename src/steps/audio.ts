@@ -142,8 +142,10 @@ export async function pickExtractor(
   } catch {
     if (tillatMock) return new MockExtractor(fallbackDurationSec);
     throw new Error(
-      "ffmpeg mangler, og talegjenkjenneren kan ikke hente mediefila selv. " +
-        "Installer ffmpeg, eller bruk en motor som støtter URL (AssemblyAI).",
+      "Fant ingen ferdig mediefil å sende til talegjenkjenneren, bare en " +
+        "HLS-spilleliste — og ffmpeg, som kunne gjort om spillelista til lyd, " +
+        "er ikke installert her. Enten må videoen ha en progressiv variant " +
+        "(mp4) i Flowplayer, eller så må tjenesten kjøre med ffmpeg.",
     );
   }
 }

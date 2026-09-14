@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.js";
 import { finnMediaUrler } from "../src/providers/video/embed.js";
 import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
-import { pickEncoding } from "../src/providers/video/flowplayer.js";
+import { pickEncoding, pickProgressive } from "../src/providers/video/flowplayer.js";
 import { parseVtt } from "../src/steps/subtitles.js";
 import { tilSegmenter, kortSprak, boostliste } from "../src/providers/asr/assemblyai.js";
 import { pickNorwegian } from "../src/pipeline.js";
@@ -299,4 +299,34 @@ test("duplikater fjernes", () => {
 
 test("ingen media gir tom liste, ikke krasj", () => {
   assert.deepEqual(finnMediaUrler("console.log('hei')"), []);
+});
+
+// --- Spilleliste vs. ekte mediefil ----------------------------------------
+
+test("spillelister velges bort når mottakeren skal laste ned fila selv", () => {
+  const enc = [
+    { format: "hls", bitrate: 2600, video_file_url: "https://x/master.m3u8" },
+    { format: "mpeg-dash", bitrate: 2600, video_file_url: "https://x/m.mpd" },
+    { format: "1080p", bitrate: 4400, video_file_url: "https://x/1080.mp4" },
+    { format: "240p", bitrate: 400, video_file_url: "https://x/240.mp4" },
+  ];
+  // ffmpeg vil ha manifesten – den kan hente kun lydrendisjonen derfra.
+  assert.equal(pickEncoding(enc)?.format, "hls");
+  // AssemblyAI laster ned fila selv og kan ikke lese en spilleliste.
+  assert.equal(pickProgressive(enc)?.format, "240p");
+});
+
+test("bilder og teasere er ikke mediefiler", () => {
+  const valgt = pickProgressive([
+    { format: "img", bitrate: 1, video_file_url: "https://x/p.jpg" },
+    { format: "teaser", bitrate: 2, video_file_url: "https://x/t.mp4" },
+    { format: "360p", bitrate: 750, video_file_url: "https://x/360.mp4" },
+  ]);
+  assert.equal(valgt?.format, "360p");
+});
+
+test("bare spillelister gir ingen progressiv variant", () => {
+  assert.equal(pickProgressive([
+    { format: "hls", bitrate: 2600, video_file_url: "https://x/m.m3u8" },
+  ]), undefined, "da må ffmpeg til – og feilmeldingen må si det");
 });

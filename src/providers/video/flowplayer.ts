@@ -52,6 +52,7 @@ export class FlowplayerSource implements VideoSource {
     }
 
     const valgt = pickEncoding(video.encodings ?? []);
+    const progressiv = pickProgressive(video.encodings ?? []);
     if (!valgt?.video_file_url) {
       throw new Error(
         `Fant ingen avspillbar mediefil for ${ref.videoId}. ` +
@@ -69,6 +70,7 @@ export class FlowplayerSource implements VideoSource {
 
     return {
       url: valgt.video_file_url,
+      progressiveUrl: progressiv?.video_file_url,
       // Er opptaket rent lyd, eller er kilden en HLS-manifest, kan ffmpeg
       // hente lyden uten å dra ned videobytes.
       hasSeparateAudio: video.audio_only === true || valgt.format === "hls",
@@ -159,6 +161,23 @@ export function pickEncoding(encodings: Encoding[]): Encoding | undefined {
 
   return brukbare
     .slice()
+    .sort((a, b) => (a.bitrate ?? Infinity) - (b.bitrate ?? Infinity))[0];
+}
+
+/**
+ * Velger en ekte mediefil, ikke en spilleliste.
+ *
+ * AssemblyAI og liknende laster ned fila selv og kan ikke gjøre noe med en
+ * HLS-manifest — den inneholder bare lenker til segmenter, ikke lyd.
+ *
+ * Laveste bitrate vinner: for talegjenkjenning er 240p og 1080p nøyaktig like
+ * gode (lyden er den samme), men den ene er en brøkdel så stor å laste ned.
+ */
+export function pickProgressive(encodings: Encoding[]): Encoding | undefined {
+  const SPILLELISTER = new Set(["hls", "mpeg-dash"]);
+  return encodings
+    .filter((e) => e.video_file_url && !SPILLELISTER.has(e.format ?? ""))
+    .filter((e) => !["img", "teaser"].includes(e.format ?? ""))
     .sort((a, b) => (a.bitrate ?? Infinity) - (b.bitrate ?? Infinity))[0];
 }
 

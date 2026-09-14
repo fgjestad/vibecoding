@@ -48,10 +48,13 @@ export class EmbedSource implements VideoSource {
       );
     }
 
-    // HLS først: da kan AssemblyAI hente kun lydrendisjonen hvis den finnes.
     const hls = kilder.find((k) => k.includes(".m3u8"));
+    // En spilleliste er ikke en mediefil. Tjenester som laster ned selv
+    // trenger den progressive varianten.
+    const progressiv = kilder.find((k) => /\.(mp4|m4a)(\?|$)/i.test(k));
     return {
-      url: hls ?? kilder[0]!,
+      url: hls ?? progressiv ?? kilder[0]!,
+      progressiveUrl: progressiv,
       hasSeparateAudio: Boolean(hls),
       durationSec: null,   // embed-modulen gir oss ikke dette pålitelig
       title: null,

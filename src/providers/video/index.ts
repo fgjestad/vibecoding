@@ -8,8 +8,19 @@ export interface Chapter {
 }
 
 export interface ResolvedMedia {
-  /** Direkte URL til manifest eller mediefil. Kortlevd – lagres aldri. */
+  /**
+   * Beste kilde for ffmpeg: helst en HLS-manifest, siden ffmpeg da kan
+   * hente kun lydrendisjonen og aldri røre videobytes. Kortlevd – lagres aldri.
+   */
   url: string;
+  /**
+   * En ekte, sammenhengende mediefil (mp4/m4a) – ikke en spilleliste.
+   *
+   * Tjenester som laster ned fila selv, som AssemblyAI, kan ikke lese en
+   * HLS-manifest: den er bare en tekstfil med lenker til segmenter. De må ha
+   * denne. Udefinert når ingen progressiv variant finnes.
+   */
+  progressiveUrl?: string;
   /** Om lyden kan hentes uten å laste ned videobytes. */
   hasSeparateAudio: boolean;
   durationSec: number | null;

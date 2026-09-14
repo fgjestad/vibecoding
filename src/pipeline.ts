@@ -172,14 +172,20 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
           `tidsstempler: omtrentlige`,
       );
       log("  NB: referansetranskript til sammenligning – ikke publiseringskvalitet.");
-    } else if (makeASR(cfg).transcribeUrl && cfg.videoProvider !== "mock") {
+    } else if (
+      makeASR(cfg).transcribeUrl &&
+      media.progressiveUrl &&
+      cfg.videoProvider !== "mock"
+    ) {
       // Leverandøren henter mediefila selv. Ingen nedlasting, ingen ffmpeg,
       // ingen disk – og fire timer video koster oss null båndbredde.
       job.status = "transkriberer";
       await store.save(job);
       const asr = makeASR(cfg);
       log(`Lar ${asr.name} hente mediefila direkte (ingen nedlasting) ...`);
-      job.transcript = await transcribe(asr, undefined, job.roster, media.url);
+      job.transcript = await transcribe(
+        asr, undefined, job.roster, media.progressiveUrl,
+      );
       log(
         `  ${job.transcript.segments.length} segmenter, ` +
           `tidsstempler: ${job.transcript.timestampQuality}`,
