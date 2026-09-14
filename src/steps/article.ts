@@ -42,6 +42,13 @@ Ufravikelige regler:
 5. Er transkriptet uklart på et punkt du trenger, la det stå åpent i stedet for
    å fylle inn. Skriv heller kort enn usikkert.
 
+NAVN SKAL STAVES SOM I DELTAKERLISTA.
+Transkriptet kommer fra talegjenkjenning, som bommer systematisk på
+egennavn — «Rønoldtangen» kan ha blitt til «Rønnaug Tangen». Deltakerlista
+er fasit. Er du i tvil om et navn i transkriptet viser til en person på
+lista, bruk stavemåten fra lista. Er du i tvil om det er samme person i det
+hele tatt, skriv «en representant» heller enn å gjette på navnet.
+
 Språk: norsk bokmål, nøktern lokaljournalistikk. Ingen adjektivbruk som tar
 stilling. Navn med partitilhørighet første gang: «Kari Nordmann (Ap)».`;
 

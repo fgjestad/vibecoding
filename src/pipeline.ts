@@ -15,6 +15,7 @@ import { pickExtractor } from "./steps/audio.js";
 import { parseRoster } from "./steps/roster.js";
 import { RosterStore } from "./store/rosters.js";
 import { transcribe } from "./steps/transcribe.js";
+import { anvendRettinger, finnNavnerettinger } from "./steps/navn.js";
 import { transcriptFromSubtitleUrl } from "./steps/subtitles.js";
 import { matchSpeakers } from "./steps/speakers.js";
 import { placeAgenda } from "./steps/agenda.js";
@@ -232,6 +233,22 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
         `  ${job.transcript.segments.length} segmenter, ` +
           `tidsstempler: ${job.transcript.timestampQuality}`,
       );
+    }
+
+    // Rett navn ASR-en har hørt feil, mot deltakerlista. Ingen retting er
+    // usynlig: originalen og scoren lagres, og vises i transkriptet.
+    if (job.roster && job.transcript) {
+      const fikser = finnNavnerettinger(job.transcript.segments, job.roster);
+      if (fikser.length) {
+        job.transcript = {
+          ...job.transcript,
+          segments: anvendRettinger(job.transcript.segments, fikser),
+          nameFixes: fikser,
+        };
+        const unike = new Set(fikser.map((f) => `${f.from} → ${f.to}`));
+        log(`  Rettet ${fikser.length} navn mot deltakerlista:`);
+        for (const u of [...unike].slice(0, 8)) log(`    ${u}`);
+      }
     }
 
     // 4. Talere og saker.

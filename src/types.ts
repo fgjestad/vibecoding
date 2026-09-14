@@ -96,6 +96,16 @@ export interface Segment {
   words: Word[];
 }
 
+/** En navnerettelse gjort etter transkriberingen. Originalen beholdes, slik
+ *  at journalisten kan se hva systemet har endret på kildematerialet. */
+export interface NameFix {
+  segment: number;
+  from: string;
+  to: string;
+  personId: string;
+  score: number;
+}
+
 export interface Transcript {
   language: string;
   /** Hvilken motor som lagde dette. Runde 1: "gemini". Runde 2: "google-stt". */
@@ -106,6 +116,8 @@ export interface Transcript {
   timestampQuality: "exact" | "approximate";
   durationSec: number;
   segments: Segment[];
+  /** Navn som er rettet mot deltakerlista etter transkriberingen. */
+  nameFixes?: NameFix[];
 }
 
 // ---------------------------------------------------------------- Slutninger

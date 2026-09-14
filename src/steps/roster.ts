@@ -114,13 +114,17 @@ function mediaTypeFor(ext: string): "image/png" | "image/jpeg" | "image/webp" {
  * navn som aldri ble sagt.
  */
 export function vocabularyFrom(roster: Roster): string[] {
+  // "Medlem" og "Varamedlem" er vanlige ord uten særpreg. Tar vi dem med,
+  // fortynner de boostingen av de navnene som faktisk trenger den.
+  const GENERISKE = new Set(["medlem", "varamedlem", "andre"]);
+
   const ord = new Set<string>();
   for (const p of roster.people) {
     ord.add(p.name);
     // Etternavn alene – slik representanter omtales i debatten.
     const deler = p.name.split(/\s+/);
     if (deler.length > 1) ord.add(deler[deler.length - 1]!);
-    if (p.role) ord.add(p.role);
+    if (p.role && !GENERISKE.has(p.role.toLowerCase())) ord.add(p.role);
     if (p.party) ord.add(p.party);
   }
   for (const s of roster.agenda) ord.add(s.ref);

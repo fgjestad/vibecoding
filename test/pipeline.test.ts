@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { vocabularyFrom, ambiguousSurnames } from "../src/steps/roster.js";
 import { loadConfig } from "../src/config.js";
 import { finnMediaUrler } from "../src/providers/video/embed.js";
+import { finnNavnerettinger, anvendRettinger, likhet } from "../src/steps/navn.js";
 import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
 import { pickEncoding, pickProgressive } from "../src/providers/video/flowplayer.js";
@@ -329,4 +330,66 @@ test("bare spillelister gir ingen progressiv variant", () => {
   assert.equal(pickProgressive([
     { format: "hls", bitrate: 2600, video_file_url: "https://x/m.m3u8" },
   ]), undefined, "da må ffmpeg til – og feilmeldingen må si det");
+});
+
+// --- Navnerettelser (ekte feil fra AssemblyAI) ----------------------------
+
+const nesRoster = () => ({
+  source: "upload" as const, documentKind: "ukjent" as const,
+  documentName: "nes", agenda: [],
+  people: JSON.parse(readFileSync("./rosters/nes.json", "utf8")).people,
+});
+
+const seg = (text: string) => [{ start: 0, end: 5, speaker: null, text, words: [] }];
+
+test("retter det AssemblyAI faktisk hørte feil", () => {
+  const f = finnNavnerettinger(
+    seg("Da gir jeg ordet til Tone Rønnaug Tangen fra Arbeiderpartiet."),
+    nesRoster(),
+  );
+  assert.equal(f.length, 1);
+  assert.equal(f[0]!.from, "Tone Rønnaug Tangen");
+  assert.equal(f[0]!.to, "Tone Rønoldtangen");
+  assert.ok(f[0]!.score >= 0.7);
+});
+
+test("rettingen settes inn i teksten", () => {
+  const s = seg("Takk til Tone Rønnaug Tangen for innlegget.");
+  const ut = anvendRettinger(s, finnNavnerettinger(s, nesRoster()));
+  assert.equal(ut[0]!.text, "Takk til Tone Rønoldtangen for innlegget.");
+});
+
+test("navn som allerede er riktige røres ikke", () => {
+  assert.deepEqual(
+    finnNavnerettinger(seg("Ordfører Tove Nyhus åpnet møtet."), nesRoster()),
+    [],
+  );
+});
+
+test("vanlige ord rettes ikke til navn selv om de likner litt", () => {
+  const f = finnNavnerettinger(
+    seg("Det Nye Forslaget Ble Vedtatt Med Fire Mot Tre Stemmer."),
+    nesRoster(),
+  );
+  assert.deepEqual(f, [], "falske treff er verre enn å la noe stå urettet");
+});
+
+test("uten klar margin til nest beste rettes ingenting", () => {
+  const roster = {
+    ...nesRoster(),
+    people: [
+      { id: "a", name: "Jon Hansen", party: null, role: null, group: "folkevalgt" as const, present: null },
+      { id: "b", name: "Jan Hansen", party: null, role: null, group: "folkevalgt" as const, present: null },
+    ],
+  };
+  assert.deepEqual(
+    finnNavnerettinger(seg("Representanten Jen Hansen tok ordet."), roster),
+    [], "to like nære kandidater — da vet vi ikke hvem som ble sagt",
+  );
+});
+
+test("likhet regner riktig på norske tegn", () => {
+  assert.equal(likhet("Rønoldtangen", "Rønoldtangen"), 1);
+  assert.ok(likhet("Rønnaug Tangen", "Rønoldtangen") > 0.6);
+  assert.ok(likhet("Blådammen", "Blodammen") > 0.85);
 });

@@ -56,6 +56,7 @@ mark { background:var(--marker); color:inherit; }
     <button id="kopier">Kopier hele teksten</button>
   </div>
 </div></div>
+<div class="innhold" id="rettinger"></div>
 <div class="innhold" id="tekst"><p class="beskjed">Laster …</p></div>
 
 <script type="module">
@@ -103,6 +104,25 @@ async function start() {
       bekreftet: m.confirmed,
     };
   };
+
+  // Ingen retting på kildematerialet skal være usynlig.
+  const fikser = j.transcript.nameFixes ?? [];
+  if (fikser.length) {
+    const unike = [...new Map(fikser.map((f) => [`${f.from}|${f.to}`, f])).values()];
+    document.getElementById("rettinger").innerHTML = `
+      <details style="margin:16px 0;padding:12px 16px;border:1px solid var(--kant);border-radius:8px">
+        <summary style="cursor:pointer;font-weight:600;font-size:.9rem">
+          ${fikser.length} navn er rettet mot deltakerlista</summary>
+        <p style="font-size:.84rem;color:var(--dempet);margin:10px 0 6px">
+          Talegjenkjenningen bommer på egennavn. Disse er rettet automatisk —
+          sjekk dem mot lyden hvis du skal sitere noen av dem.</p>
+        ${unike.map((f) => `<div style="font-size:.86rem;padding:3px 0">
+          <span style="text-decoration:line-through;color:var(--dempet)">${esc(f.from)}</span>
+          &nbsp;→&nbsp; <strong>${esc(f.to)}</strong>
+          <span style="color:var(--dempet);font-size:.8rem">&nbsp;(${f.score})</span>
+        </div>`).join("")}
+      </details>`;
+  }
 
   document.getElementById("meta").textContent =
     `${segmenter.length} replikker · motor: ${j.transcript.engine} · tidsstempler: ` +
