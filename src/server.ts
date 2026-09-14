@@ -4,12 +4,15 @@ import { extname, join, normalize } from "node:path";
 import { loadConfig } from "./config.js";
 import { run } from "./pipeline.js";
 import { ArtifactStore, ryddAvbrutte } from "./store/artifacts.js";
+import { RosterStore } from "./store/rosters.js";
+import { parseRosterText } from "./steps/roster.js";
 import { ClaudeClient } from "./providers/llm/claude.js";
 import { writeArticle } from "./steps/article.js";
 import type { Job } from "./types.js";
 
 const cfg = loadConfig();
 const store = new ArtifactStore(cfg.dataDir);
+const lister = new RosterStore(cfg.dataDir);
 const PORT = Number(process.env.PORT ?? 3000);
 
 /** Jobber som kjører akkurat nå. Selve tilstanden ligger på disk. */
@@ -61,7 +64,8 @@ async function startJobb(body: any): Promise<{ id: string }> {
   }
 
   kjorer.add(id);
-  void run(cfg, { videoId, documentPath, jobId: id })
+  const rosterId = body.rosterId ? String(body.rosterId) : undefined;
+  void run(cfg, { videoId, documentPath, rosterId, jobId: id })
     .catch(() => {})            // feilen lagres allerede i jobben
     .finally(() => kjorer.delete(id));
 
@@ -73,6 +77,34 @@ async function ruter(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const sti = url.pathname;
 
   if (sti === "/healthz") return json(res, 200, { ok: true, kjorer: kjorer.size });
+
+  if (sti === "/api/rosters" && req.method === "GET") {
+    return json(res, 200, (await lister.list()).map((l) => ({
+      id: l.id, navn: l.navn, antall: l.roster.people.length,
+    })));
+  }
+
+  if (sti === "/api/rosters" && req.method === "POST") {
+    const body = await lesKropp(req);
+    const navn = String(body.navn ?? "").trim();
+    const tekst = String(body.tekst ?? "").trim();
+    if (!navn) throw new Error("Gi lista et navn, f.eks. «Nes kommunestyre».");
+    if (tekst.length < 10) throw new Error("Lim inn navnelista først.");
+
+    const claude = await ClaudeClient.create({ model: cfg.claudeModel, vertex: cfg.vertex });
+    const roster = await parseRosterText(claude, tekst, navn);
+    if (roster.people.length === 0) {
+      throw new Error("Fant ingen navn i teksten. Sjekk at du limte inn riktig.");
+    }
+    const lagret = await lister.save(navn, roster);
+    return json(res, 201, { id: lagret.id, navn: lagret.navn, roster: lagret.roster });
+  }
+
+  const rl = sti.match(/^\/api\/rosters\/([\w-]+)$/);
+  if (rl && req.method === "GET") {
+    const l = await lister.load(rl[1]!);
+    return l ? json(res, 200, l) : json(res, 404, { error: "Ukjent navneliste." });
+  }
 
   if (sti === "/api/jobs" && req.method === "POST") {
     return json(res, 202, await startJobb(await lesKropp(req)));

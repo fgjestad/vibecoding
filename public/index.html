@@ -104,12 +104,40 @@ button.sekundar { background: transparent; color: var(--aksent); border: 1px sol
       <p class="hint">Den lange koden etter <code>id=</code> i embed-lenka.</p>
     </div>
     <div class="felt">
-      <label for="dokument">Møteinnkalling eller protokoll (PDF)</label>
+      <label for="listeValg">Navneliste</label>
+      <select id="listeValg"><option value="">— ingen —</option></select>
+      <p class="hint">Gir talegjenkjenningen navnene på forhånd. Legg inn lista under.</p>
+    </div>
+    <div class="felt">
+      <label for="dokument">Møteinnkalling eller protokoll (PDF) — valgfritt</label>
       <input type="file" id="dokument" accept=".pdf,.png,.jpg,.jpeg,.webp">
-      <p class="hint">Gir navnelista til talegjenkjenningen og sakskartet til artiklene. Uten den mister du det meste.</p>
+      <p class="hint">Gir sakskartet, og hvem som faktisk møtte. Overstyrer navnelista over.</p>
     </div>
     <button id="start">Start</button>
     <span id="startFeil" class="usikker"></span>
+  </div>
+
+  <!-- ---------- Navnelister ---------- -->
+  <div class="kort">
+    <h2>Navnelister</h2>
+    <p class="hint">Et kommunestyre er det samme fra møte til møte. Lim inn lista én gang, så brukes den om igjen.</p>
+    <div id="listeOversikt"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-size:.9rem;font-weight:600">Legg inn ny liste</summary>
+      <div style="margin-top:14px">
+        <div class="felt">
+          <label for="listeNavn">Navn på lista</label>
+          <input type="text" id="listeNavn" placeholder="Nes kommunestyre">
+        </div>
+        <div class="felt">
+          <label for="listeTekst">Lim inn navnene</label>
+          <textarea id="listeTekst" style="min-height:170px" placeholder="Tove Nyhus, ordfører, Fremskrittspartiet&#10;Harald Johansen, varaordfører, Høyre&#10;Anne Grethe Tømte, medlem, Arbeiderpartiet&#10;…"></textarea>
+          <p class="hint">Formatet spiller ingen rolle — lim gjerne rett fra kommunens nettside. Ta med parti og rolle når du har det.</p>
+        </div>
+        <button id="lagreListe">Lagre liste</button>
+        <span id="listeFeil" class="usikker"></span>
+      </div>
+    </details>
   </div>
 
   <!-- ---------- Jobbliste ---------- -->
@@ -154,6 +182,8 @@ $("#start").onclick = async () => {
   try {
     const fil = $("#dokument").files[0];
     const body = { videoId };
+    const listeId = $("#listeValg").value;
+    if (listeId) body.rosterId = listeId;
     if (fil) {
       body.document = { name: fil.name, base64: await base64(fil) };
     }
@@ -179,6 +209,43 @@ const base64 = (fil) => new Promise((ok, nei) => {
   l.onerror = nei;
   l.readAsDataURL(fil);
 });
+
+// ---------- Navnelister ----------
+async function tegnLister() {
+  const l = await api("/api/rosters");
+  $("#listeOversikt").innerHTML = l.length === 0
+    ? `<p class="hint">Ingen lister ennå.</p>`
+    : l.map((x) => `<div class="jobbrad" style="cursor:default">
+        <div><strong>${esc(x.navn)}</strong>
+        <div class="hint">${x.antall} personer</div></div></div>`).join("");
+
+  const valgt = $("#listeValg").value;
+  $("#listeValg").innerHTML = `<option value="">— ingen —</option>` +
+    l.map((x) => `<option value="${esc(x.id)}"${x.id === valgt ? " selected" : ""}>${
+      esc(x.navn)} (${x.antall})</option>`).join("");
+}
+
+$("#lagreListe").onclick = async () => {
+  const navn = $("#listeNavn").value.trim();
+  const tekst = $("#listeTekst").value.trim();
+  $("#listeFeil").textContent = "";
+  const knapp = $("#lagreListe");
+  knapp.disabled = true; knapp.textContent = "Leser lista …";
+  try {
+    const svar = await api("/api/rosters", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ navn, tekst }),
+    });
+    $("#listeNavn").value = ""; $("#listeTekst").value = "";
+    await tegnLister();
+    $("#listeValg").value = svar.id;
+    $("#listeFeil").textContent = `Lagret ${svar.roster.people.length} personer.`;
+  } catch (e) {
+    $("#listeFeil").textContent = e.message;
+  } finally {
+    knapp.disabled = false; knapp.textContent = "Lagre liste";
+  }
+};
 
 // ---------- Liste ----------
 async function tegnListe() {
@@ -325,6 +392,7 @@ function koble(j) {
 // ---------- Oppdatering ----------
 async function oppdater() {
   try {
+    await tegnLister();
     await tegnListe();
     await tegnDetalj();
   } catch (e) {

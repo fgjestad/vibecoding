@@ -31,7 +31,18 @@ export class ClaudeClient {
       });
       return new ClaudeClient(c as unknown as Anthropic, cfg.model);
     }
-    return new ClaudeClient(new Anthropic(), cfg.model);
+    try {
+      return new ClaudeClient(new Anthropic(), cfg.model);
+    } catch (e) {
+      // SDK-ens egen melding ramser opp fem autentiseringsmetoder og hjelper
+      // ingen. Si hva som mangler og hvor den settes.
+      throw new Error(
+        "Claude-nøkkelen mangler. Sett ANTHROPIC_API_KEY (i Render: " +
+          "Environment → Add Environment Variable), eller GCP_PROJECT hvis " +
+          "dere kjører Claude via Vertex AI. " +
+          `Underliggende: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   /**

@@ -13,6 +13,7 @@ import { EmbedSource } from "./providers/video/embed.js";
 import { ArtifactStore } from "./store/artifacts.js";
 import { pickExtractor } from "./steps/audio.js";
 import { parseRoster } from "./steps/roster.js";
+import { RosterStore } from "./store/rosters.js";
 import { transcribe } from "./steps/transcribe.js";
 import { transcriptFromSubtitleUrl } from "./steps/subtitles.js";
 import { matchSpeakers } from "./steps/speakers.js";
@@ -79,6 +80,9 @@ export interface RunOptions {
    *  sakskartet og navnemappingen – altså det meste av verdien. */
   documentPath?: string;
   prompt?: string;
+  /** Lagret navneliste. Kommunestyret er det samme fra møte til møte, så
+   *  lista skrives inn én gang og gjenbrukes. */
+  rosterId?: string;
   log?: (s: string) => void;
   /** Forhåndsvalgt jobb-ID, slik at webtjenesten kan svare med den før
    *  jobben er ferdig og journalisten kan følge framdriften. */
@@ -122,16 +126,26 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
 
   try {
     // 1. Deltakerliste og sakskart – først, fordi ordlista trengs i steg 3.
+    if (opts.rosterId) {
+      const liste = await new RosterStore(cfg.dataDir).load(opts.rosterId);
+      if (!liste) throw new Error(`Fant ingen navneliste med id ${opts.rosterId}.`);
+      job.roster = liste.roster;
+      log(`Bruker navnelista «${liste.navn}» (${liste.roster.people.length} personer).`);
+    }
+
     if (opts.documentPath) {
       job.status = "leser-dokument";
       await store.save(job);
       log(`Leser ${opts.documentPath} ...`);
-      job.roster = await parseRoster(claude, opts.documentPath);
+      const fraDokument = await parseRoster(claude, opts.documentPath);
+      // Dokumentet vet hvem som faktisk møtte; den lagrede lista vet det ikke.
+      // Sakskartet finnes bare i dokumentet.
+      job.roster = fraDokument;
       log(
         `  ${job.roster.people.length} personer, ${job.roster.agenda.length} saker ` +
           `(${job.roster.documentKind})`,
       );
-    } else {
+    } else if (!opts.rosterId) {
       log("Ingen deltakerliste oppgitt – hopper over ordliste og navnemapping.");
     }
 

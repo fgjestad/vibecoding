@@ -149,3 +149,72 @@ export function ambiguousSurnames(people: { name: string }[]): Map<string, strin
   }
   return new Map([...etter].filter(([, navn]) => navn.length > 1));
 }
+
+// ---------------------------------------------------------------- Innliming
+
+const FolkSchema = z.object({
+  people: z.array(
+    z.object({
+      name: z.string(),
+      party: z.string().nullable(),
+      role: z.string().nullable(),
+      group: z.enum(["folkevalgt", "administrasjon", "ekstern"]),
+    }),
+  ),
+});
+
+const LIM_INN = `Du trekker ut navnelister over folkevalgte fra tekst journalisten har limt inn.
+
+Teksten kan komme fra hva som helst: kommunens innsynsportal, en e-post, et
+regneark, eller noe skrevet for hånd. Formatet varierer vilt. Hold deg til det
+som faktisk står der.
+
+Regler:
+
+1. Partinavn gjengis ORDRETT. "Uavhengig/Høyre" er ikke "Høyre" — en utbryter
+   er ikke partiet hen brøt med, og den forskjellen ville blitt feil i en
+   publisert sak. Det samme gjelder "Fellesliste for SV og Rødt" og
+   "Uavhengig/VIPartiet".
+2. Rolle tas med når den står: Ordfører, Varaordfører, Medlem, Varamedlem.
+3. Folkevalgte får group "folkevalgt". Kommunedirektør, rådmann og
+   saksbehandlere får "administrasjon".
+4. UTELAT personer som ikke deltar i møtet. Oppføringer som
+   "Administrativ tilgang til møteportalen for folkevalgte" er IT-tilganger,
+   ikke møtedeltakere, og skal ikke bli talerkandidater.
+5. Finn aldri opp navn, partier eller roller som ikke står i teksten.`;
+
+/**
+ * Leser en navneliste journalisten har limt inn.
+ *
+ * Finnes som alternativ til å laste opp innkallingen, fordi kommunestyrets
+ * sammensetning er den samme fra møte til møte — den bør skrives inn én gang
+ * og gjenbrukes, ikke hentes ut av en PDF hver gang.
+ *
+ * Lista har ingen oppmøtedata: den sier hvem som ER medlemmer, ikke hvem som
+ * møtte. Derfor present=null for alle.
+ */
+export async function parseRosterText(
+  claude: ClaudeClient,
+  tekst: string,
+  navn: string,
+): Promise<Roster> {
+  const parsed = await claude.structured({
+    schema: FolkSchema,
+    system: LIM_INN,
+    effort: "high",
+    content: [{ type: "text", text: `Trekk ut navnelista:\n\n${tekst}` }],
+  });
+
+  return {
+    source: "upload",
+    documentKind: "ukjent",
+    documentName: navn,
+    people: parsed.people.map((p, i) => ({
+      ...p,
+      id: `p${i + 1}`,
+      // Fast medlemsliste, ikke oppmøte for et enkelt møte.
+      present: null,
+    })),
+    agenda: [],
+  };
+}
