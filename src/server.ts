@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { loadConfig } from "./config.js";
-import { run } from "./pipeline.js";
+import { makeVideo, run } from "./pipeline.js";
 import { ArtifactStore, ryddAvbrutte } from "./store/artifacts.js";
 import { RosterStore } from "./store/rosters.js";
 import { parseRosterText } from "./steps/roster.js";
@@ -122,6 +122,17 @@ async function ruter(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!jobb) return json(res, 404, { error: "Ukjent jobb." });
 
     if (!m[2] && req.method === "GET") return json(res, 200, jobb);
+
+    if (m[2] === "/media" && req.method === "GET") {
+      // Slås opp på nytt hver gang. Mediefil-URL-er fra Flowplayer har
+      // kortlevde tokens, så de lagres aldri i jobben — vi har video-ID-en.
+      const media = await makeVideo(cfg).resolve(jobb.video);
+      return json(res, 200, {
+        url: media.progressiveUrl ?? media.url,
+        title: media.title,
+        durationSec: media.durationSec,
+      });
+    }
 
     if (m[2] === "/speakers" && req.method === "POST") {
       return json(res, 200, await bekreftTalere(jobb, await lesKropp(req)));

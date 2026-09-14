@@ -268,10 +268,27 @@ async function tegnListe() {
 }
 
 // ---------- Detaljer ----------
+let sistTegnet = "";
+
 async function tegnDetalj() {
   if (!valgt) return $("#detalj").classList.add("skjult");
   const j = await api(`/api/jobs/${valgt}`);
   $("#detalj").classList.remove("skjult");
+
+  // Tegn ALDRI om mens journalisten skriver. Statusoppdateringen går hvert
+  // 15. sekund, og en innerHTML-erstatning bytter ut tekstfeltet midt i en
+  // setning — teksten forsvinner, og feltet virker ødelagt.
+  const skriver = $("#detalj").contains(document.activeElement) &&
+    /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (skriver) return;
+
+  // Og tegn bare om når noe faktisk har endret seg.
+  const signatur = JSON.stringify([
+    j.status, j.log?.length, j.speakers?.map((s) => [s.personId, s.confirmed]),
+    j.articles?.length, j.error,
+  ]);
+  if (signatur === sistTegnet) return;
+  sistTegnet = signatur;
 
   const deler = [`<div class="kort">
     <h2>Møte <span class="id">${esc(j.id)}</span> ${merke(j.status)}</h2>`];
@@ -284,6 +301,16 @@ async function tegnDetalj() {
   }
   deler.push(`</div>`);
 
+  if (j.transcript) {
+    deler.push(`<div class="kort">
+      <h2>Transkript</h2>
+      <p class="hint">${j.transcript.segments.length} replikker ·
+        motor: ${esc(j.transcript.engine)} ·
+        tidsstempler: ${esc(j.transcript.timestampQuality === "exact" ? "målte" : "omtrentlige")}</p>
+      <a href="/transkript.html?jobb=${encodeURIComponent(j.id)}" target="_blank"
+         style="display:inline-block"><button class="sekundar">Åpne transkriptet i egen fane →</button></a>
+    </div>`);
+  }
   if (j.speakers?.length) deler.push(talerKort(j));
   if (j.transcript) deler.push(artikkelKort(j));
   for (const a of j.articles ?? []) deler.push(artikkelVisning(a, j));

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transkript – møteskriver</title>
+<style>
+:root {
+  --bg:#fbfaf8; --kort:#fff; --tekst:#1a1a1a; --dempet:#6b6560;
+  --kant:#e2ddd6; --aksent:#8a2a1f; --marker:#fff2c9; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16151a; --kort:#1e1d23; --tekst:#eceaf0; --dempet:#a09aa8;
+    --kant:#34323c; --aksent:#e08a7a; --marker:#3d3520; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--tekst);
+  font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.topp { position:sticky; top:0; z-index:10; background:var(--bg);
+  border-bottom:1px solid var(--kant); padding:12px 20px; }
+.innhold { max-width:820px; margin:0 auto; }
+video { width:100%; max-height:38vh; background:#000; border-radius:8px; display:block; }
+h1 { font-size:1.1rem; margin:0 0 3px; }
+.meta { font-size:.82rem; color:var(--dempet); margin:0 0 10px; }
+.verktoy { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+input[type=search] { flex:1; min-width:180px; padding:8px 11px; font:inherit;
+  font-size:.9rem; border:1px solid var(--kant); border-radius:6px;
+  background:var(--kort); color:var(--tekst); }
+button { background:transparent; color:var(--aksent); border:1px solid var(--kant);
+  border-radius:6px; padding:8px 14px; font:inherit; font-size:.85rem;
+  font-weight:600; cursor:pointer; }
+.linje { display:grid; grid-template-columns:78px 1fr; gap:12px;
+  padding:9px 0; border-bottom:1px solid var(--kant); scroll-margin-top:52vh; }
+.linje:hover { background:var(--kort); }
+.linje.na { background:var(--marker); }
+.tid { font:12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color:var(--aksent); font-weight:600; background:none; border:0;
+  padding:2px 0; text-align:left; cursor:pointer; }
+.tid:hover { text-decoration:underline; }
+.hvem { font-weight:700; font-size:.82rem; color:var(--dempet);
+  text-transform:uppercase; letter-spacing:.03em; }
+.hvem.ubekreftet::after { content:" ·  ikke bekreftet"; font-weight:400;
+  text-transform:none; letter-spacing:0; color:var(--aksent); }
+mark { background:var(--marker); color:inherit; }
+.beskjed { max-width:820px; margin:40px auto; padding:0 20px; color:var(--dempet); }
+@media (max-width:560px){ .linje{grid-template-columns:64px 1fr; gap:8px;} }
+</style>
+</head>
+<body>
+<div class="topp"><div class="innhold">
+  <video id="spiller" controls preload="metadata"></video>
+  <h1 id="tittel">Transkript</h1>
+  <p class="meta" id="meta"></p>
+  <div class="verktoy">
+    <input type="search" id="sok" placeholder="Søk i transkriptet …">
+    <button id="kopier">Kopier hele teksten</button>
+  </div>
+</div></div>
+<div class="innhold" id="tekst"><p class="beskjed">Laster …</p></div>
+
+<script type="module">
+const p = new URLSearchParams(location.search);
+const jobbId = p.get("jobb");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" })[c]);
+const tid = (s) => {
+  const t = Math.floor(s);
+  return `${String(Math.floor(t/3600)).padStart(2,"0")}:${String(Math.floor(t%3600/60)).padStart(2,"0")}:${String(t%60).padStart(2,"0")}`;
+};
+
+if (!jobbId) {
+  document.getElementById("tekst").innerHTML =
+    `<p class="beskjed">Mangler jobb-ID i adressen.</p>`;
+} else {
+  start().catch((e) => {
+    document.getElementById("tekst").innerHTML =
+      `<p class="beskjed">Klarte ikke laste transkriptet: ${esc(e.message)}</p>`;
+  });
+}
+
+let segmenter = [];
+
+async function start() {
+  const r = await fetch(`/api/jobs/${jobbId}`);
+  if (!r.ok) throw new Error(`Fant ikke jobben (${r.status})`);
+  const j = await r.json();
+  if (!j.transcript) throw new Error("Jobben har ikke noe transkript ennå.");
+
+  segmenter = j.transcript.segments;
+
+  // Hvem snakker: slå sammen deltakerlista og de bekreftede koblingene.
+  const folk = new Map((j.roster?.people ?? []).map((x) => [x.id, x]));
+  const talere = new Map((j.speakers ?? []).map((s) => [s.speaker, s]));
+  const navnFor = (sp) => {
+    const m = sp ? talere.get(sp) : null;
+    if (!m) return { navn: sp ?? "", bekreftet: true };
+    const person = m.personId ? folk.get(m.personId) : null;
+    if (!person) return { navn: m.label || sp, bekreftet: true };
+    return {
+      navn: `${person.name}${person.party ? ` (${person.party})` : ""}`,
+      // Ubekreftede navn merkes. Journalisten skal aldri sitere et navn
+      // systemet bare har gjettet på.
+      bekreftet: m.confirmed,
+    };
+  };
+
+  document.getElementById("meta").textContent =
+    `${segmenter.length} replikker · motor: ${j.transcript.engine} · tidsstempler: ` +
+    (j.transcript.timestampQuality === "exact" ? "målte" : "omtrentlige (må verifiseres)");
+
+  document.getElementById("tekst").innerHTML = segmenter.map((s, i) => {
+    const { navn, bekreftet } = navnFor(s.speaker);
+    return `<div class="linje" id="l${i}" data-start="${s.start}">
+      <button class="tid" data-sek="${s.start}">${tid(s.start)}</button>
+      <div>${navn ? `<div class="hvem${bekreftet ? "" : " ubekreftet"}">${esc(navn)}</div>` : ""}
+        <div class="txt">${esc(s.text)}</div></div>
+    </div>`;
+  }).join("");
+
+  // Hent mediefila på nytt – URL-ene er kortlevde og lagres aldri.
+  const spiller = document.getElementById("spiller");
+  try {
+    const m = await (await fetch(`/api/jobs/${jobbId}/media`)).json();
+    if (m.url) spiller.src = m.url;
+    if (m.title) document.getElementById("tittel").textContent = m.title;
+  } catch {
+    document.getElementById("meta").textContent +=
+      " · fikk ikke hentet videoen, men teksten er her";
+  }
+
+  for (const b of document.querySelectorAll(".tid")) {
+    b.onclick = () => {
+      spiller.currentTime = Number(b.dataset.sek);
+      spiller.play().catch(() => {});   // noen nettlesere krever klikk i spilleren
+    };
+  }
+
+  // Marker replikken som spilles nå, og følg etter i teksten.
+  let forrige = -1;
+  spiller.addEventListener("timeupdate", () => {
+    const n = spiller.currentTime;
+    const i = segmenter.findIndex((s) => n >= s.start && n < s.end);
+    if (i === forrige) return;
+    document.querySelector(".linje.na")?.classList.remove("na");
+    if (i >= 0) {
+      const el = document.getElementById(`l${i}`);
+      el?.classList.add("na");
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    forrige = i;
+  });
+
+  document.getElementById("sok").oninput = (e) => sok(e.target.value.trim());
+  document.getElementById("kopier").onclick = kopier;
+}
+
+function sok(q) {
+  const linjer = document.querySelectorAll(".linje");
+  if (!q) {
+    linjer.forEach((l, i) => {
+      l.style.display = "";
+      l.querySelector(".txt").innerHTML = esc(segmenter[i].text);
+    });
+    return;
+  }
+  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  linjer.forEach((l, i) => {
+    const t = segmenter[i].text;
+    const treff = re.test(t);
+    l.style.display = treff ? "" : "none";
+    if (treff) l.querySelector(".txt").innerHTML = esc(t).replace(re, "<mark>$1</mark>");
+  });
+}
+
+async function kopier() {
+  const tekst = segmenter.map((s) => `[${tid(s.start)}] ${s.text}`).join("\n\n");
+  const knapp = document.getElementById("kopier");
+  try {
+    await navigator.clipboard.writeText(tekst);
+    knapp.textContent = "Kopiert!";
+  } catch {
+    knapp.textContent = "Klarte ikke kopiere";
+  }
+  setTimeout(() => { knapp.textContent = "Kopier hele teksten"; }, 2000);
+}
+</script>
+</body>
+</html>
