@@ -97,8 +97,31 @@ hva du gjør videre.
 
 Ti minutter lyd holder. Feilmodusene viser seg med én gang.
 
-Faller det ut dårlig, er reserveløsningen NB-Whisper fra Nasjonalbiblioteket
-på Cloud Run med GPU — den bryter ikke med Google-valget.
+## NB-Whisper lokalt
+
+Nasjonalbibliotekets finetuning av Whisper på norsk. Det eneste alternativet
+som er *bygget* for norsk dialekt i stedet for å støtte norsk blant hundre
+andre språk — og det eneste som gir målte ord-tidsstempler uten kostnad per
+møte.
+
+```bash
+pip install faster-whisper ctranslate2 transformers
+ct2-transformers-converter --model NbAiLab/nb-whisper-large \
+    --output_dir nb-whisper-large-ct2 --quantization int8
+
+python scripts/nb-whisper.py lyd.opus > fixtures/nb-whisper.json
+MOCK_TRANSCRIPT=fixtures/nb-whisper.json npm run kjor -- <video-id>
+```
+
+Skriptet skriver rett inn i appens transkriptformat, så resten av pipelinen
+bruker det uten at noe annet endres.
+
+**Maskinvare.** Med NVIDIA-kort (6 GB+) tar fire timer 15–60 minutter. På ren
+CPU tar det natta. Men en *kvalitetstest* krever ti minutter lyd, ikke fire
+timer — og det klarer enhver PC på under en halvtime. Svar på spørsmålet
+«duger NB-Whisper på norsk?» før du vurderer maskinvare.
+
+**Mangler taleridentifikasjon.** Må løses separat med pyannote. Ikke med her.
 
 ## Redaksjonelle regler som ligger i koden
 
