@@ -97,6 +97,23 @@ hva du gjør videre.
 
 Ti minutter lyd holder. Feilmodusene viser seg med én gang.
 
+## AssemblyAI
+
+Runde 1 i produksjon. Valgt fordi den er **selvbetjent** — ingen IT-avdeling
+å vente på — og har taleridentifikasjon i samme kall som transkriberingen.
+
+```bash
+ASR_PROVIDER=assemblyai ASSEMBLYAI_API_KEY=... \
+  npm run kjor -- <video-id> --dokument innkalling.pdf
+```
+
+Ordlista fra deltakerlista sendes som `word_boost` med `boost_param: high`.
+Det er en dedikert mekanisme, ikke en fritekst-prompt, så navnene
+hallusineres ikke inn der de ikke ble sagt.
+
+To detaljer koden håndterer som er lette å gå på: nøkkelen sendes **uten**
+`Bearer`-prefiks, og alle tider kommer i **millisekunder**.
+
 ## NB-Whisper lokalt
 
 Nasjonalbibliotekets finetuning av Whisper på norsk. Det eneste alternativet

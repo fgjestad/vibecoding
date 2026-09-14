@@ -6,6 +6,7 @@ import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
 import { pickEncoding } from "../src/providers/video/flowplayer.js";
 import { parseVtt } from "../src/steps/subtitles.js";
+import { tilSegmenter, kortSprak, boostliste } from "../src/providers/asr/assemblyai.js";
 import { pickNorwegian } from "../src/pipeline.js";
 import type { AudioArtifact, Roster } from "../src/types.js";
 
@@ -186,5 +187,70 @@ test("ingen kontaktopplysninger lagres om folkevalgte", () => {
       Object.keys(p).filter((k) => /phone|mail|tlf|epost/i.test(k)),
       [], `${p.name} har kontaktfelt – systemet trenger bare navn, parti og rolle`,
     );
+  }
+});
+
+// --- AssemblyAI ------------------------------------------------------------
+
+test("millisekunder fra AssemblyAI regnes om til sekunder", () => {
+  const s = tilSegmenter({
+    id: "x", status: "completed",
+    utterances: [{
+      text: "Takk, ordfører.", start: 25000, end: 58300, confidence: 0.9,
+      speaker: "B",
+      words: [{ text: "Takk", start: 25000, end: 25300, confidence: 0.98, speaker: "B" }],
+    }],
+  } as any);
+
+  assert.equal(s[0]!.start, 25, "25000 ms er 25 sekunder, ikke 25000");
+  assert.equal(s[0]!.end, 58.3);
+  assert.equal(s[0]!.words[0]!.end, 25.3);
+});
+
+test("talere fra AssemblyAI får samme form som resten av systemet", () => {
+  const s = tilSegmenter({
+    id: "x", status: "completed",
+    utterances: [
+      { text: "En.", start: 0, end: 1000, confidence: 0.9, speaker: "A" },
+      { text: "To.", start: 1000, end: 2000, confidence: 0.9, speaker: "B" },
+    ],
+  } as any);
+  assert.equal(s[0]!.speaker, "SPEAKER_A");
+  assert.equal(s[1]!.speaker, "SPEAKER_B");
+});
+
+test("uten diarisering deles ord opp på setningsslutt", () => {
+  const ord = (text: string, start: number, end: number) =>
+    ({ text, start, end, confidence: 0.9 });
+  const s = tilSegmenter({
+    id: "x", status: "completed",
+    words: [
+      ord("Første", 0, 500), ord("setning.", 500, 1000),
+      ord("Andre", 1000, 1500), ord("setning.", 1500, 2000),
+    ],
+  } as any);
+  assert.equal(s.length, 2);
+  assert.equal(s[0]!.text, "Første setning.");
+  assert.equal(s[0]!.speaker, null, "ingen diarisering – ikke lat som");
+  assert.equal(s[1]!.start, 1);
+});
+
+test("språkkoden kortes ned slik AssemblyAI vil ha den", () => {
+  assert.equal(kortSprak("no-NO"), "no");
+  assert.equal(kortSprak("nb-NO"), "nb");
+});
+
+test("ordlista holdes innenfor AssemblyAIs grenser", () => {
+  const nes = JSON.parse(readFileSync("./rosters/nes.json", "utf8"));
+  const liste = boostliste(vocabularyFrom({
+    source: "upload", documentKind: "protokoll", documentName: "x",
+    people: nes.people, agenda: [],
+  }));
+
+  assert.ok(liste.length <= 1000);
+  assert.ok(liste.includes("Rønoldtangen"), "vanskelige egennavn er hele poenget");
+  assert.ok(liste.includes("Sørli-Sidselssønn"));
+  for (const o of liste) {
+    assert.ok(o.split(/\s+/).length <= 6, `"${o}" er for lang for word_boost`);
   }
 });

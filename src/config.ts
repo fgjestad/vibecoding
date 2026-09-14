@@ -3,13 +3,14 @@ import { resolve } from "node:path";
 export interface Config {
   claudeModel: string;
   vertex?: { projectId: string; region: string };
-  asrProvider: "mock" | "gemini" | "google-stt";
+  asrProvider: "mock" | "assemblyai" | "gemini" | "google-stt";
   videoProvider: "mock" | "flowplayer";
   flowplayer: { workspaceId: string; apiKey: string };
   /** Bruk transkriptet Flowplayer allerede har laget. AV som standard –
    *  kvaliteten er erfaringsmessig for svak. Slå på for å hente et gratis
    *  referansetranskript å måle en ekte ASR-motor mot. */
   useExistingSubtitles: boolean;
+  assemblyAiKey: string;
   geminiModel: string;
   /** Opus-bitrate. 24k er standardvalget: 4 timer blir ~43 MB, og de 14 MB
    *  ekstra over 16k er billig forsikring på gjenkjenningskvalitet. */
@@ -33,6 +34,7 @@ export function loadConfig(env = process.env): Config {
       apiKey: env.FLOWPLAYER_API_KEY ?? "",
     },
     useExistingSubtitles: env.USE_EXISTING_SUBTITLES === "true",
+    assemblyAiKey: env.ASSEMBLYAI_API_KEY ?? "",
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.5-pro",
     audioBitrate: env.AUDIO_BITRATE ?? "24k",
     dataDir: resolve(env.DATA_DIR ?? "./data"),

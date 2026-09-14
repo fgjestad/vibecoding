@@ -3,6 +3,7 @@ import type { Config } from "./config.js";
 import { ClaudeClient } from "./providers/llm/claude.js";
 import type { ASRProvider } from "./providers/asr/index.js";
 import { MockASR } from "./providers/asr/mock.js";
+import { AssemblyAIASR } from "./providers/asr/assemblyai.js";
 import { GeminiASR } from "./providers/asr/gemini.js";
 import { GoogleSTT } from "./providers/asr/google-stt.js";
 import type { VideoSource } from "./providers/video/index.js";
@@ -22,6 +23,10 @@ export function makeASR(cfg: Config): ASRProvider {
   switch (cfg.asrProvider) {
     case "mock":
       return new MockASR(cfg.mockTranscript);
+    case "assemblyai":
+      return new AssemblyAIASR({
+        apiKey: req(cfg.assemblyAiKey, "ASSEMBLYAI_API_KEY"),
+      });
     case "gemini":
       return new GeminiASR({
         projectId: req(cfg.vertex?.projectId, "GCP_PROJECT"),
