@@ -9,8 +9,29 @@ grensesnitt og fylles inn når tilgangene er på plass.
 
 ```bash
 npm install
-npm run kjor -- 2eaf68dc-efe6-4a01-8838-614722592494
+npm run dev          # webtjenesten på http://localhost:3000
+npm run kjor -- <video-id>   # eller kommandolinja
 ```
+
+## Deploy til Render
+
+Repoet har en blueprint. I Render: **New → Blueprint** → velg repoet. Render
+leser `render.yaml` og setter opp tjenesten.
+
+Nøklene ligger **ikke** i blueprinten — de er merket `sync: false`, så Render
+spør deg om dem i dashbordet:
+
+```
+ASSEMBLYAI_API_KEY    FLOWPLAYER_API_KEY    ANTHROPIC_API_KEY
+```
+
+Tjenesten kjører i Frankfurt (EU) med en montert disk på `/var/data`, slik at
+transkripter overlever en ny deploy. Fire timer transkribering skal ikke
+gjøres om igjen fordi noen dyttet en kodeendring.
+
+**Ingen ffmpeg i Render.** AssemblyAI henter mediefila direkte fra
+Flowplayer-lenka, så tjenesten laster aldri ned video. Faller den veien bort,
+stopper jobben med en tydelig feil i stedet for å produsere falsk lyd.
 
 ## Slik henger det sammen
 

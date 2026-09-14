@@ -11,7 +11,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "kjor": "tsx src/cli.ts",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "start": "node dist/src/server.js",
+    "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

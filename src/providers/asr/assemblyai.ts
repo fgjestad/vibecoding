@@ -61,6 +61,17 @@ export class AssemblyAIASR implements ASRProvider {
     return this.tilTranscript(ferdig, opts.language);
   }
 
+  /**
+   * Lar AssemblyAI hente mediefila selv fra en URL.
+   *
+   * Sparer oss for å laste ned fire timer video, trekke ut lyd og laste opp
+   * igjen — og gjør at tjenesten kan kjøre uten ffmpeg installert.
+   */
+  async transcribeUrl(url: string, opts: TranscribeOptions): Promise<Transcript> {
+    const jobb = await this.submit(url, opts);
+    return this.tilTranscript(await this.poll(jobb.id), opts.language);
+  }
+
   /** Laster opp lydfila og får en midlertidig URL tilbake. */
   private async upload(path: string): Promise<string> {
     const res = await fetch(`${BASE}/upload`, {

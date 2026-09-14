@@ -125,14 +125,25 @@ export class MockExtractor implements AudioExtractor {
   }
 }
 
-/** ffmpeg der den finnes, mock ellers. */
+/**
+ * ffmpeg der den finnes.
+ *
+ * Mock-uttrekkeren brukes BARE når resten av kjøringen også er mock. Å falle
+ * tilbake til oppdiktet lyd i produksjon ville gitt en jobb som ser vellykket
+ * ut og leverer tull — verre enn en tydelig feil.
+ */
 export async function pickExtractor(
   fallbackDurationSec: number,
+  tillatMock: boolean,
 ): Promise<AudioExtractor> {
   try {
     await run("ffmpeg", ["-version"]);
     return new FfmpegExtractor();
   } catch {
-    return new MockExtractor(fallbackDurationSec);
+    if (tillatMock) return new MockExtractor(fallbackDurationSec);
+    throw new Error(
+      "ffmpeg mangler, og talegjenkjenneren kan ikke hente mediefila selv. " +
+        "Installer ffmpeg, eller bruk en motor som støtter URL (AssemblyAI).",
+    );
   }
 }

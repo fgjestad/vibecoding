@@ -11,16 +11,19 @@ import { vocabularyFrom } from "./roster.js";
  */
 export async function transcribe(
   asr: ASRProvider,
-  audio: AudioArtifact,
+  audio: AudioArtifact | undefined,
   roster: Roster | undefined,
+  mediaUrl?: string,
 ): Promise<Transcript> {
-  const vocabulary = roster ? vocabularyFrom(roster) : [];
-
-  const t = await asr.transcribe(audio, {
+  const opts = {
     language: "no-NO",
-    vocabulary,
+    vocabulary: roster ? vocabularyFrom(roster) : [],
     diarize: asr.supportsDiarization,
-  });
+  };
+
+  const t = mediaUrl && asr.transcribeUrl
+    ? await asr.transcribeUrl(mediaUrl, opts)
+    : await asr.transcribe(audio!, opts);
 
   // Motoren er sannhetskilden for hva tidsstemplene er verdt – ikke fixturen.
   return { ...t, engine: asr.name, timestampQuality: asr.timestampQuality };

@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>møteskriver</title>
+<style>
+:root {
+  --bg: #fbfaf8; --kort: #fff; --tekst: #1a1a1a; --dempet: #6b6560;
+  --kant: #e2ddd6; --aksent: #8a2a1f; --ok: #2d6a3f; --varsel: #a06800;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16151a; --kort: #1e1d23; --tekst: #eceaf0; --dempet: #a09aa8;
+    --kant: #34323c; --aksent: #e08a7a; --ok: #7ec894; --varsel: #e0b050;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--tekst);
+  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.ramme { max-width: 780px; margin: 0 auto; padding: 32px 20px 80px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+h2 { font-size: 1.05rem; margin: 0 0 12px; }
+.undertittel { color: var(--dempet); margin: 0 0 28px; font-size: .92rem; }
+.kort {
+  background: var(--kort); border: 1px solid var(--kant); border-radius: 10px;
+  padding: 20px; margin-bottom: 18px;
+}
+label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 5px; }
+.hint { font-size: .8rem; color: var(--dempet); margin: 4px 0 0; }
+input[type=text], textarea, select, input[type=file] {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--kant); border-radius: 6px;
+  background: var(--bg); color: var(--tekst); font: inherit; font-size: .92rem;
+}
+textarea { min-height: 76px; resize: vertical; }
+.felt { margin-bottom: 16px; }
+button {
+  background: var(--aksent); color: #fff; border: 0; border-radius: 6px;
+  padding: 10px 18px; font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.sekundar { background: transparent; color: var(--aksent); border: 1px solid var(--kant); }
+.merke {
+  display: inline-block; font-size: .72rem; font-weight: 700; padding: 2px 8px;
+  border-radius: 20px; border: 1px solid var(--kant); color: var(--dempet);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.merke.gaar { color: var(--varsel); border-color: var(--varsel); }
+.merke.klar { color: var(--ok); border-color: var(--ok); }
+.merke.feil { color: var(--aksent); border-color: var(--aksent); }
+.logg {
+  font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); border: 1px solid var(--kant); border-radius: 6px;
+  padding: 12px; max-height: 220px; overflow-y: auto; white-space: pre-wrap;
+  color: var(--dempet);
+}
+.jobbrad {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--kant); cursor: pointer;
+}
+.jobbrad:last-child { border-bottom: 0; }
+.jobbrad:hover .id { color: var(--aksent); }
+.id { font: 12px ui-monospace, Menlo, monospace; }
+.taler {
+  display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; align-items: start;
+  padding: 12px 0; border-bottom: 1px solid var(--kant);
+}
+.taler:last-of-type { border-bottom: 0; }
+.sitat { font-size: .85rem; color: var(--dempet); font-style: italic; }
+.usikker { color: var(--varsel); font-size: .78rem; font-weight: 600; }
+.artikkel { border-left: 3px solid var(--aksent); padding-left: 16px; margin: 18px 0; }
+.artikkel h3 { margin: 0 0 8px; font-size: 1.15rem; }
+.artikkel .brodtekst { white-space: pre-wrap; }
+.kilde {
+  border-top: 1px solid var(--kant); padding: 10px 0; font-size: .85rem;
+}
+.tid {
+  font: 12px ui-monospace, Menlo, monospace; color: var(--aksent);
+  font-weight: 600; margin-right: 8px;
+}
+.feilboks {
+  border-left: 3px solid var(--aksent); padding: 10px 14px; font-size: .88rem;
+  background: var(--bg); border-radius: 0 6px 6px 0;
+}
+.skjult { display: none; }
+@media (max-width: 560px) { .taler { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="ramme">
+  <h1>møteskriver</h1>
+  <p class="undertittel">Transkriberer kommunale møteopptak og skriver artikkelutkast med kilder tilbake til videoen.</p>
+
+  <!-- ---------- Ny jobb ---------- -->
+  <div class="kort" id="nyttKort">
+    <h2>Nytt møte</h2>
+    <div class="felt">
+      <label for="videoId">Video-ID fra Flowplayer</label>
+      <input type="text" id="videoId" placeholder="2eaf68dc-efe6-4a01-8838-614722592494" spellcheck="false">
+      <p class="hint">Den lange koden etter <code>id=</code> i embed-lenka.</p>
+    </div>
+    <div class="felt">
+      <label for="dokument">Møteinnkalling eller protokoll (PDF)</label>
+      <input type="file" id="dokument" accept=".pdf,.png,.jpg,.jpeg,.webp">
+      <p class="hint">Gir navnelista til talegjenkjenningen og sakskartet til artiklene. Uten den mister du det meste.</p>
+    </div>
+    <button id="start">Start</button>
+    <span id="startFeil" class="usikker"></span>
+  </div>
+
+  <!-- ---------- Jobbliste ---------- -->
+  <div class="kort">
+    <h2>Møter</h2>
+    <div id="liste"><p class="hint">Laster …</p></div>
+  </div>
+
+  <!-- ---------- Detaljer ---------- -->
+  <div id="detalj" class="skjult"></div>
+</div>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const api = async (sti, valg) => {
+  const r = await fetch(sti, valg);
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error ?? `Feil ${r.status}`);
+  return d;
+};
+const tid = (s) => {
+  const t = Math.floor(s);
+  return `${String(Math.floor(t/3600)).padStart(2,"0")}:${String(Math.floor(t%3600/60)).padStart(2,"0")}:${String(t%60).padStart(2,"0")}`;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" })[c]);
+
+const GAAR = ["opprettet","henter-lyd","leser-dokument","transkriberer","matcher-talere"];
+const merke = (s) =>
+  `<span class="merke ${s==="feilet"?"feil":s==="klar"?"klar":GAAR.includes(s)?"gaar":""}">${esc(s)}</span>`;
+
+let valgt = null, timer = null;
+
+// ---------- Start ----------
+$("#start").onclick = async () => {
+  const videoId = $("#videoId").value.trim();
+  $("#startFeil").textContent = "";
+  if (!videoId) return $("#startFeil").textContent = "Lim inn en video-ID.";
+
+  $("#start").disabled = true;
+  $("#start").textContent = "Starter …";
+  try {
+    const fil = $("#dokument").files[0];
+    const body = { videoId };
+    if (fil) {
+      body.document = { name: fil.name, base64: await base64(fil) };
+    }
+    const { id } = await api("/api/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    $("#videoId").value = ""; $("#dokument").value = "";
+    valgt = id;
+    await oppdater();
+  } catch (e) {
+    $("#startFeil").textContent = e.message;
+  } finally {
+    $("#start").disabled = false;
+    $("#start").textContent = "Start";
+  }
+};
+
+const base64 = (fil) => new Promise((ok, nei) => {
+  const l = new FileReader();
+  l.onload = () => ok(l.result.split(",")[1]);
+  l.onerror = nei;
+  l.readAsDataURL(fil);
+});
+
+// ---------- Liste ----------
+async function tegnListe() {
+  const jobber = await api("/api/jobs");
+  $("#liste").innerHTML = jobber.length === 0
+    ? `<p class="hint">Ingen møter ennå.</p>`
+    : jobber.map((j) => `
+        <div class="jobbrad" data-id="${esc(j.id)}">
+          <div>
+            <div class="id">${esc(j.videoId.slice(0, 8))}…</div>
+            <div class="hint">${new Date(j.createdAt).toLocaleString("nb-NO")}${
+              j.antallArtikler ? ` · ${j.antallArtikler} artikkel(er)` : ""}</div>
+          </div>
+          ${merke(j.status)}
+        </div>`).join("");
+
+  for (const rad of document.querySelectorAll(".jobbrad")) {
+    rad.onclick = () => { valgt = rad.dataset.id; oppdater(); };
+  }
+}
+
+// ---------- Detaljer ----------
+async function tegnDetalj() {
+  if (!valgt) return $("#detalj").classList.add("skjult");
+  const j = await api(`/api/jobs/${valgt}`);
+  $("#detalj").classList.remove("skjult");
+
+  const deler = [`<div class="kort">
+    <h2>Møte <span class="id">${esc(j.id)}</span> ${merke(j.status)}</h2>`];
+
+  if (j.error) {
+    deler.push(`<div class="feilboks"><strong>Stoppet:</strong> ${esc(j.error)}</div>`);
+  }
+  if (j.log?.length) {
+    deler.push(`<div class="logg">${j.log.map(esc).join("\n")}</div>`);
+  }
+  deler.push(`</div>`);
+
+  if (j.speakers?.length) deler.push(talerKort(j));
+  if (j.transcript) deler.push(artikkelKort(j));
+  for (const a of j.articles ?? []) deler.push(artikkelVisning(a, j));
+
+  $("#detalj").innerHTML = deler.join("");
+  koble(j);
+}
+
+function talerKort(j) {
+  const folk = j.roster?.people ?? [];
+  const ubekreftet = j.speakers.filter((s) => !s.confirmed).length;
+  return `<div class="kort">
+    <h2>Hvem snakker?</h2>
+    <p class="hint">${ubekreftet} av ${j.speakers.length} er ikke bekreftet.
+      Ingen navn havner i en artikkel før du har godkjent dem.</p>
+    ${j.speakers.map((s) => {
+      const eks = (j.transcript?.segments ?? []).filter((g) => g.speaker === s.speaker).slice(0, 2);
+      return `<div class="taler">
+        <div>
+          <strong>${esc(s.speaker)}</strong>
+          ${s.confidence < 0.5 && s.personId
+            ? `<div class="usikker">Usikker — flere kan hete dette</div>` : ""}
+          ${eks.map((g) => `<div class="sitat">«${esc(g.text.slice(0, 90))}…»</div>`).join("")}
+        </div>
+        <div>
+          <select data-taler="${esc(s.speaker)}">
+            <option value="">— ukjent / ekstern —</option>
+            ${folk.map((p) => `<option value="${esc(p.id)}"${p.id === s.personId ? " selected" : ""}>${
+              esc(p.name)}${p.party ? ` (${esc(p.party)})` : ""}</option>`).join("")}
+          </select>
+        </div>
+      </div>`;
+    }).join("")}
+    <p></p><button id="lagreTalere">Bekreft talerne</button>
+  </div>`;
+}
+
+function artikkelKort(j) {
+  const saker = (j.roster?.agenda ?? []).filter((a) => a.startSec !== undefined);
+  return `<div class="kort">
+    <h2>Skriv artikkelutkast</h2>
+    ${saker.length ? `<div class="felt">
+      <label for="sak">Sak</label>
+      <select id="sak"><option value="">Hele møtet</option>
+        ${saker.map((a) => `<option value="${esc(a.ref)}">${esc(a.ref)} — ${esc(a.title)}</option>`).join("")}
+      </select></div>` : ""}
+    <div class="felt">
+      <label for="prompt">Hva skal saken handle om?</label>
+      <textarea id="prompt" placeholder="Skriv en nyhetssak om striden rundt reguleringen. Få fram hvem som var uenige og hva som ble vedtatt."></textarea>
+    </div>
+    <button id="skriv">Skriv utkast</button>
+    <span id="skrivFeil" class="usikker"></span>
+  </div>`;
+}
+
+function artikkelVisning(a, j) {
+  const navn = new Map((j.roster?.people ?? []).map((p) => [p.id, p.name]));
+  return `<div class="kort"><div class="artikkel">
+    <h3>${esc(a.headline)}</h3>
+    <div class="brodtekst">${esc(a.body)}</div>
+  </div>
+  <h2>Kilder (${a.citations.length})</h2>
+  <p class="hint">Hver påstand skal kunne sjekkes mot opptaket. Klikk deg til tidspunktet i videoen.</p>
+  ${a.citations.map((c) => `<div class="kilde">
+    <span class="tid">${tid(c.startSec)}</span>
+    ${c.speakerPersonId ? `<strong>${esc(navn.get(c.speakerPersonId) ?? "")}</strong>: ` : ""}
+    «${esc(c.quote)}»
+  </div>`).join("")}
+  </div>`;
+}
+
+function koble(j) {
+  const lagre = $("#lagreTalere");
+  if (lagre) lagre.onclick = async () => {
+    lagre.disabled = true;
+    const mappings = [...document.querySelectorAll("[data-taler]")].map((s) => ({
+      speaker: s.dataset.taler, personId: s.value || null,
+    }));
+    try {
+      await api(`/api/jobs/${j.id}/speakers`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mappings }),
+      });
+      await oppdater();
+    } finally { lagre.disabled = false; }
+  };
+
+  const skriv = $("#skriv");
+  if (skriv) skriv.onclick = async () => {
+    const prompt = $("#prompt").value.trim();
+    $("#skrivFeil").textContent = "";
+    if (!prompt) return $("#skrivFeil").textContent = "Skriv hva saken skal handle om.";
+    skriv.disabled = true; skriv.textContent = "Skriver …";
+    try {
+      await api(`/api/jobs/${j.id}/articles`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, agendaRef: $("#sak")?.value || null }),
+      });
+      await oppdater();
+    } catch (e) {
+      $("#skrivFeil").textContent = e.message;
+    } finally { skriv.disabled = false; skriv.textContent = "Skriv utkast"; }
+  };
+}
+
+// ---------- Oppdatering ----------
+async function oppdater() {
+  try {
+    await tegnListe();
+    await tegnDetalj();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// Spør oftere mens noe faktisk skjer – en fire timers jobb uten
+// tilbakemelding føles som om den har hengt seg.
+function planlegg() {
+  clearTimeout(timer);
+  const aktiv = document.querySelector(".merke.gaar");
+  timer = setTimeout(async () => { await oppdater(); planlegg(); }, aktiv ? 3000 : 15000);
+}
+
+await oppdater();
+planlegg();
+</script>
+</body>
+</html>

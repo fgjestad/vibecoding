@@ -25,4 +25,12 @@ export interface ASRProvider {
   /** Om tidsstemplene kan stoles på ned til ordet, eller bare omtrentlig. */
   readonly timestampQuality: "exact" | "approximate";
   transcribe(audio: AudioArtifact, opts: TranscribeOptions): Promise<Transcript>;
+  /**
+   * Transkriber rett fra en URL, uten at vi laster ned noe.
+   *
+   * Der leverandøren støtter dette forsvinner både ffmpeg, nedlastingen og
+   * diskbruken fra vår side — vi gir dem lenka, de henter fire timer selv.
+   * Motorer uten denne muligheten lar den stå udefinert.
+   */
+  transcribeUrl?(url: string, opts: TranscribeOptions): Promise<Transcript>;
 }

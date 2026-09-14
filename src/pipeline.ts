@@ -72,6 +72,9 @@ export interface RunOptions {
   documentPath?: string;
   prompt?: string;
   log?: (s: string) => void;
+  /** Forhåndsvalgt jobb-ID, slik at webtjenesten kan svare med den før
+   *  jobben er ferdig og journalisten kan følge framdriften. */
+  jobId?: string;
 }
 
 /**
@@ -81,15 +84,21 @@ export interface RunOptions {
  * deltakerlista er ordlista talegjenkjenningen skal biases med.
  */
 export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
-  const log = opts.log ?? (() => {});
+  const skrivUt = opts.log ?? (() => {});
   const store = new ArtifactStore(cfg.dataDir);
   const claude = await ClaudeClient.create({
     model: cfg.claudeModel,
     vertex: cfg.vertex,
   });
 
-  const job: Job = {
-    id: randomUUID().slice(0, 8),
+  let job: Job;
+  const log = (linje: string) => {
+    skrivUt(linje);
+    job.log.push(`${new Date().toISOString().slice(11, 19)}  ${linje}`);
+  };
+
+  job = {
+    id: opts.jobId ?? randomUUID().slice(0, 8),
     status: "opprettet",
     createdAt: new Date().toISOString(),
     video: {
@@ -98,6 +107,7 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
       workspaceId: cfg.flowplayer.workspaceId || undefined,
     },
     articles: [],
+    log: [],
   };
   await store.ensureDir(job.id);
   log(`Jobb ${job.id} opprettet for video ${opts.videoId}`);
@@ -154,8 +164,23 @@ export async function run(cfg: Config, opts: RunOptions): Promise<Job> {
           `tidsstempler: omtrentlige`,
       );
       log("  NB: referansetranskript til sammenligning – ikke publiseringskvalitet.");
+    } else if (makeASR(cfg).transcribeUrl && cfg.videoProvider !== "mock") {
+      // Leverandøren henter mediefila selv. Ingen nedlasting, ingen ffmpeg,
+      // ingen disk – og fire timer video koster oss null båndbredde.
+      job.status = "transkriberer";
+      await store.save(job);
+      const asr = makeASR(cfg);
+      log(`Lar ${asr.name} hente mediefila direkte (ingen nedlasting) ...`);
+      job.transcript = await transcribe(asr, undefined, job.roster, media.url);
+      log(
+        `  ${job.transcript.segments.length} segmenter, ` +
+          `tidsstempler: ${job.transcript.timestampQuality}`,
+      );
     } else {
-      const extractor = await pickExtractor(media.durationSec ?? 420);
+      const extractor = await pickExtractor(
+        media.durationSec ?? 420,
+        cfg.videoProvider === "mock",
+      );
       log(
         `Henter lyd fra ${media.hasSeparateAudio ? "egen lydrendisjon" : "mediestrøm"} ` +
           `(${extractor.name}) ...`,

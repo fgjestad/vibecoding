@@ -45,4 +45,41 @@ export class ArtifactStore {
   async ensureDir(jobId: string): Promise<void> {
     await mkdir(this.dir(jobId), { recursive: true });
   }
+
+  /** Jobbene, nyeste først. Leser fra disk, så de overlever omstart. */
+  async list(limit = 50): Promise<Job[]> {
+    const { readdir } = await import("node:fs/promises");
+    let mapper: string[];
+    try {
+      mapper = await readdir(this.root);
+    } catch {
+      return [];
+    }
+    const jobber = await Promise.all(mapper.map((d) => this.load(d)));
+    return jobber
+      .filter((j): j is Job => j !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+}
+
+/**
+ * Markerer jobber som ble avbrutt av en omstart.
+ *
+ * Render starter tjenesten på nytt ved deploy. En jobb som sto midt i
+ * transkriberingen da, kommer aldri videre av seg selv — og en status som
+ * står fast på "transkriberer" i all evighet er verre enn en ærlig feil.
+ */
+export async function ryddAvbrutte(store: ArtifactStore): Promise<number> {
+  const aktive = new Set(["henter-lyd", "leser-dokument", "transkriberer", "matcher-talere"]);
+  let antall = 0;
+  for (const jobb of await store.list(200)) {
+    if (!aktive.has(jobb.status)) continue;
+    jobb.status = "feilet";
+    jobb.error = "Avbrutt av omstart av tjenesten. Start jobben på nytt.";
+    jobb.log.push("Avbrutt av omstart.");
+    await store.save(jobb);
+    antall++;
+  }
+  return antall;
 }

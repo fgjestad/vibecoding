@@ -1,0 +1,45 @@
+# Render Blueprint for møteskriver.
+#
+# Koble repoet til Render → New → Blueprint. Render leser denne fila og
+# setter opp tjenesten. Hemmelighetene under er merket sync:false, som
+# betyr at Render spør deg om dem i dashbordet i stedet for å lese dem
+# herfra — nøkler skal aldri ligge i et repo.
+
+services:
+  - type: web
+    name: moteskriver
+    runtime: node
+    # Frankfurt holder data i EU. Samme begrunnelse som for valg av
+    # ASR-region: offentlige møter, men norsk redaksjonelt materiale.
+    region: frankfurt
+    plan: starter          # disk krever betalt instans; free spinner ned
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+
+      # Jobber og transkripter lagres på den monterte disken under, slik at
+      # fire timer transkribering ikke må gjøres om igjen ved neste deploy.
+      - key: DATA_DIR
+        value: /var/data
+
+      - key: ASR_PROVIDER
+        value: assemblyai
+      - key: VIDEO_PROVIDER
+        value: flowplayer
+
+      # Settes i Render-dashbordet, ikke her.
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: FLOWPLAYER_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+    disk:
+      name: moteskriver-data
+      mountPath: /var/data
+      sizeGB: 5

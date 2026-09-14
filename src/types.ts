@@ -167,4 +167,7 @@ export interface Job {
   speakers?: SpeakerMapping[];
   articles: Article[];
   error?: string;
+  /** Framdrift, slik nettsiden kan vise hva som skjer underveis. En fire
+   *  timers jobb uten tilbakemelding føles som om den har hengt seg. */
+  log: string[];
 }
