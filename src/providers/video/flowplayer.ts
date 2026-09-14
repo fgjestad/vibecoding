@@ -90,9 +90,56 @@ export class FlowplayerSource implements VideoSource {
     });
 
     if (!res.ok) {
-      throw new Error(forklarFeil(res.status, id));
+      // 401 og 403 er de to som er vonde å skille på egen hånd: er nøkkelen
+      // feil, eller er den riktig men for et annet arbeidsområde? Vi spør
+      // API-et om det i stedet for å la journalisten gjette.
+      const ekstra =
+        res.status === 401 || res.status === 403 ? await this.diagnose() : "";
+      throw new Error(forklarFeil(res.status, id) + ekstra);
     }
     return (await res.json()) as FlowplayerVideo;
+  }
+
+  /**
+   * Finner ut om nøkkelen i det hele tatt virker.
+   *
+   * Lister videoer med samme nøkkel. Går det, er nøkkelen gyldig og
+   * problemet er at videoen ligger i et annet arbeidsområde — Amedia har
+   * ett per avis, og nøkkelen gjelder bare sitt eget.
+   */
+  private async diagnose(): Promise<string> {
+    try {
+      const res = await fetch(`${BASE}/v3/videos?page_size=3`, {
+        headers: {
+          "x-flowplayer-api-key": this.cfg.apiKey,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        return "\n\nNøkkelen ble avvist også for å liste videoer, så det er " +
+          "selve nøkkelen som er feil — ikke arbeidsområdet. Hent den på nytt " +
+          "under Workspace settings → API Key, og oppdater FLOWPLAYER_API_KEY.";
+      }
+
+      const data = (await res.json()) as {
+        total_count?: number;
+        assets?: { id: string; name?: string; workspace?: { name?: string } }[];
+      };
+      const eksempler = (data.assets ?? [])
+        .map((a) => `  ${a.id}  ${a.name ?? ""}`)
+        .join("\n");
+      const omrade = data.assets?.[0]?.workspace?.name;
+
+      return (
+        `\n\nNøkkelen VIRKER — den ser ${data.total_count ?? "?"} videoer` +
+        (omrade ? ` i arbeidsområdet «${omrade}»` : "") +
+        `. Videoen du ba om ligger altså i et ANNET arbeidsområde.\n` +
+        `Bruk API-nøkkelen fra det arbeidsområdet videoen hører til, eller ` +
+        `test med en av disse i stedet:\n${eksempler}`
+      );
+    } catch {
+      return "";
+    }
   }
 }
 
