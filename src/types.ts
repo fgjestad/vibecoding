@@ -18,7 +18,7 @@
 /** Peker på møtevideoen. Lagres aldri som ferdig oppløst manifest-URL:
  *  de inneholder tidsbegrensede tokens og går ut på dato. ID-en gjør ikke det. */
 export interface VideoRef {
-  provider: "flowplayer" | "mock";
+  provider: "flowplayer" | "embed" | "mock";
   /** Flowplayer-videoens ID – det journalisten limer inn. */
   videoId: string;
   /** Flowplayer workspace/publisher-ID. Konstant for hele Amedia. */

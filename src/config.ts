@@ -4,8 +4,8 @@ export interface Config {
   claudeModel: string;
   vertex?: { projectId: string; region: string };
   asrProvider: "mock" | "assemblyai" | "gemini" | "google-stt";
-  videoProvider: "mock" | "flowplayer";
-  flowplayer: { workspaceId: string; apiKey: string };
+  videoProvider: "mock" | "flowplayer" | "embed";
+  flowplayer: { workspaceId: string; apiKey: string; publisherId: string };
   /** Bruk transkriptet Flowplayer allerede har laget. AV som standard –
    *  kvaliteten er erfaringsmessig for svak. Slå på for å hente et gratis
    *  referansetranskript å måle en ekte ASR-motor mot. */
@@ -20,21 +20,35 @@ export interface Config {
   mockVideo: string;
 }
 
+/**
+ * Renser en verdi fra miljøet.
+ *
+ * Nøkler limes inn for hånd i Render-dashbordet, og da blir det fort med et
+ * linjeskift eller et par anførselstegn. Headeren blir ugyldig, API-et svarer
+ * 401, og verdien ser helt riktig ut i dashbordet — en ekkel feil å lete
+ * etter. Billigere å fjerne søppelet enn å feilsøke det.
+ */
+function ren(v: string | undefined): string {
+  return (v ?? "").trim().replace(/^["']|["']$/g, "").trim();
+}
+
 export function loadConfig(env = process.env): Config {
-  const projectId = env.GCP_PROJECT;
+  const projectId = ren(env.GCP_PROJECT) || undefined;
   return {
-    claudeModel: env.CLAUDE_MODEL ?? "claude-opus-5",
+    claudeModel: ren(env.CLAUDE_MODEL) || "claude-opus-5",
     vertex: projectId
-      ? { projectId, region: env.GCP_REGION ?? "europe-north1" }
+      ? { projectId, region: ren(env.GCP_REGION) || "europe-north1" }
       : undefined,
     asrProvider: (env.ASR_PROVIDER ?? "mock") as Config["asrProvider"],
     videoProvider: (env.VIDEO_PROVIDER ?? "mock") as Config["videoProvider"],
     flowplayer: {
-      workspaceId: env.FLOWPLAYER_WORKSPACE_ID ?? "",
-      apiKey: env.FLOWPLAYER_API_KEY ?? "",
+      workspaceId: ren(env.FLOWPLAYER_WORKSPACE_ID),
+      apiKey: ren(env.FLOWPLAYER_API_KEY),
+      // "pi" i embed-lenka. Konstant per utgiver, ikke per video.
+      publisherId: ren(env.FLOWPLAYER_PUBLISHER_ID),
     },
     useExistingSubtitles: env.USE_EXISTING_SUBTITLES === "true",
-    assemblyAiKey: env.ASSEMBLYAI_API_KEY ?? "",
+    assemblyAiKey: ren(env.ASSEMBLYAI_API_KEY),
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.5-pro",
     audioBitrate: env.AUDIO_BITRATE ?? "24k",
     dataDir: resolve(env.DATA_DIR ?? "./data"),

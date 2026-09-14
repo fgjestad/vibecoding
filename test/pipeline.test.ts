@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { vocabularyFrom, ambiguousSurnames } from "../src/steps/roster.js";
+import { loadConfig } from "../src/config.js";
+import { finnMediaUrler } from "../src/providers/video/embed.js";
 import { MockASR } from "../src/providers/asr/mock.js";
 import { transcribe } from "../src/steps/transcribe.js";
 import { pickEncoding } from "../src/providers/video/flowplayer.js";
@@ -253,4 +255,48 @@ test("ordlista holdes innenfor AssemblyAIs grenser", () => {
   for (const o of liste) {
     assert.ok(o.split(/\s+/).length <= 6, `"${o}" er for lang for word_boost`);
   }
+});
+
+// --- Miljøvariabler --------------------------------------------------------
+
+test("nøkler renses for linjeskift og anførselstegn fra innliming", () => {
+  const cfg = loadConfig({
+    FLOWPLAYER_API_KEY: "  abc123\n",
+    ASSEMBLYAI_API_KEY: '"def456"',
+    GCP_PROJECT: "   ",
+  } as any);
+
+  assert.equal(cfg.flowplayer.apiKey, "abc123",
+    "et linjeskift på slutten gjør headeren ugyldig og gir 401");
+  assert.equal(cfg.assemblyAiKey, "def456");
+  assert.equal(cfg.vertex, undefined,
+    "bare mellomrom er ikke et prosjekt-ID");
+});
+
+// --- Embed-modulen ---------------------------------------------------------
+
+test("medie-URL-er finnes også når JS-en har escapet skråstreker", () => {
+  const js = `var c={src:"https:\\/\\/cdn.example.com\\/a\\/master.m3u8",t:1};`;
+  assert.deepEqual(finnMediaUrler(js), ["https://cdn.example.com/a/master.m3u8"]);
+});
+
+test("unicode-escapede skråstreker håndteres også", () => {
+  const js = `{"url":"https:\\u002F\\u002Fcdn.test\\u002Ffil.mp4"}`;
+  assert.deepEqual(finnMediaUrler(js), ["https://cdn.test/fil.mp4"]);
+});
+
+test("URL-er plukkes ut uten hermetegn og komma på slutten", () => {
+  const js = `sources:["https://a.com/x.m3u8","https://a.com/y.mp4"],poster:"https://a.com/p.jpg"`;
+  const f = finnMediaUrler(js);
+  assert.deepEqual(f, ["https://a.com/x.m3u8", "https://a.com/y.mp4"],
+    "poster-bildet er ikke media og skal ikke med");
+});
+
+test("duplikater fjernes", () => {
+  const js = `a="https://x/f.m3u8"; b="https://x/f.m3u8";`;
+  assert.equal(finnMediaUrler(js).length, 1);
+});
+
+test("ingen media gir tom liste, ikke krasj", () => {
+  assert.deepEqual(finnMediaUrler("console.log('hei')"), []);
 });

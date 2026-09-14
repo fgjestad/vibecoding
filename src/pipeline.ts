@@ -9,6 +9,7 @@ import { GoogleSTT } from "./providers/asr/google-stt.js";
 import type { VideoSource } from "./providers/video/index.js";
 import { MockVideoSource } from "./providers/video/mock.js";
 import { FlowplayerSource } from "./providers/video/flowplayer.js";
+import { EmbedSource } from "./providers/video/embed.js";
 import { ArtifactStore } from "./store/artifacts.js";
 import { pickExtractor } from "./steps/audio.js";
 import { parseRoster } from "./steps/roster.js";
@@ -44,11 +45,18 @@ export function makeASR(cfg: Config): ASRProvider {
 }
 
 export function makeVideo(cfg: Config): VideoSource {
-  return cfg.videoProvider === "mock"
-    ? new MockVideoSource(cfg.mockVideo)
-    : new FlowplayerSource({
+  switch (cfg.videoProvider) {
+    case "mock":
+      return new MockVideoSource(cfg.mockVideo);
+    case "embed":
+      return new EmbedSource({
+        publisherId: req(cfg.flowplayer.publisherId, "FLOWPLAYER_PUBLISHER_ID"),
+      });
+    case "flowplayer":
+      return new FlowplayerSource({
         apiKey: req(cfg.flowplayer.apiKey, "FLOWPLAYER_API_KEY"),
       });
+  }
 }
 
 /** Velger norsk undertekst. Bokmål og nynorsk er begge greit; "no" er

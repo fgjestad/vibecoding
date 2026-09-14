@@ -206,6 +206,22 @@ antakelse.
 USE_EXISTING_SUBTITLES=true npm run kjor -- <video-id>
 ```
 
+### Reservevei uten nøkkel
+
+Henger API-tilgangen, kan mediefila hentes fra Flowplayers offentlige
+embed-modul i stedet:
+
+```
+VIDEO_PROVIDER=embed
+FLOWPLAYER_PUBLISHER_ID=<"pi" fra embed-lenka>
+```
+
+Modulen lastes av hver leser som åpner en artikkel, så den krever ingen
+autentisering og ingen arbeidsområde-tilgang. Til gjengjeld gir den bare
+mediefila — ingen tittel, varighet, kapittelmarkører eller undertekster — og
+den kan slutte å virke hvis Flowplayer endrer formatet. Platform-API-et er
+fortsatt hovedveien.
+
 ### Kapittelmarkører
 
 `GET /v3/videos/{id}` returnerer `chapters` med tidspunkt og tittel. Merkes
