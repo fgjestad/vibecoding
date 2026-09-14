@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { vocabularyFrom, ambiguousSurnames } from "../src/steps/roster.js";
 import { loadConfig } from "../src/config.js";
+import { harLovligDomene, lesAuthConfig, lagSessionCookie, lesSession } from "../src/auth.js";
 import { finnMediaUrler } from "../src/providers/video/embed.js";
 import { finnNavnerettinger, anvendRettinger, likhet } from "../src/steps/navn.js";
 import { MockASR } from "../src/providers/asr/mock.js";
@@ -392,4 +393,58 @@ test("likhet regner riktig på norske tegn", () => {
   assert.equal(likhet("Rønoldtangen", "Rønoldtangen"), 1);
   assert.ok(likhet("Rønnaug Tangen", "Rønoldtangen") > 0.6);
   assert.ok(likhet("Blådammen", "Blodammen") > 0.85);
+});
+
+// --- Adgangskontroll -------------------------------------------------------
+
+test("bare det eksakte domenet slipper inn", () => {
+  assert.equal(harLovligDomene("fred@amedia.no", "amedia.no"), true);
+  assert.equal(harLovligDomene("Fred@Amedia.NO", "amedia.no"), true,
+    "store bokstaver i e-post skal ikke sperre noen ute");
+
+  // Den farlige varianten: et domene som SLUTTER på amedia.no.
+  assert.equal(harLovligDomene("angriper@ikke-amedia.no", "amedia.no"), false);
+  assert.equal(harLovligDomene("angriper@amedia.no.evil.com", "amedia.no"), false);
+  assert.equal(harLovligDomene("fred@gmail.com", "amedia.no"), false);
+  // To krøllalfa kan brukes til å lure enkle sjekker.
+  assert.equal(harLovligDomene("a@b@amedia.no", "amedia.no"), false);
+});
+
+test("innlogging regnes som usatt når noe mangler", () => {
+  const fullt = {
+    GOOGLE_CLIENT_ID: "x", GOOGLE_CLIENT_SECRET: "y",
+    SESSION_SECRET: "z", PUBLIC_URL: "https://a.no",
+  };
+  assert.ok(lesAuthConfig(fullt as any));
+  for (const mangler of Object.keys(fullt)) {
+    const delvis = { ...fullt, [mangler]: "" };
+    assert.equal(lesAuthConfig(delvis as any), null,
+      `uten ${mangler} skal oppsettet regnes som ufullstendig, ikke halvveis aktivt`);
+  }
+});
+
+test("sesjonscookie kan ikke forfalskes", () => {
+  const cfg = {
+    clientId: "x", clientSecret: "y", sessionSecret: "hemmelig",
+    allowedDomain: "amedia.no", publicUrl: "https://a.no",
+  };
+  const cookie = lagSessionCookie(
+    { email: "fred@amedia.no", exp: Date.now() + 60000 }, cfg,
+  );
+  const verdi = cookie.split(";")[0]!.split("=").slice(1).join("=");
+
+  const les = (c: string) =>
+    lesSession({ headers: { cookie: `moteskriver_session=${c}` } } as any, cfg);
+
+  assert.equal(les(verdi)?.email, "fred@amedia.no");
+
+  // Bytt ut innholdet, behold signaturen.
+  const falsk = Buffer.from(JSON.stringify(
+    { email: "angriper@evil.com", exp: Date.now() + 60000 },
+  )).toString("base64url");
+  assert.equal(les(`${falsk}.${verdi.split(".")[1]}`), null);
+
+  // Utløpt sesjon.
+  const gammel = lagSessionCookie({ email: "fred@amedia.no", exp: Date.now() - 1 }, cfg);
+  assert.equal(les(gammel.split(";")[0]!.split("=").slice(1).join("=")), null);
 });

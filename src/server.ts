@@ -9,11 +9,18 @@ import { parseRosterText } from "./steps/roster.js";
 import { ClaudeClient } from "./providers/llm/claude.js";
 import { writeArticle } from "./steps/article.js";
 import type { Job } from "./types.js";
+import {
+  harLovligDomene, hentEpost, lagSessionCookie, lesAuthConfig, lesSession,
+  lesState, loginUrl, nyState, sesjonsvarighet, settStateCookie, slettCookies,
+} from "./auth.js";
 
 const cfg = loadConfig();
 const store = new ArtifactStore(cfg.dataDir);
 const lister = new RosterStore(cfg.dataDir);
 const PORT = Number(process.env.PORT ?? 3000);
+const auth = lesAuthConfig();
+const LOKALT = (process.env.PUBLIC_URL ?? "").includes("localhost") ||
+  process.env.NODE_ENV === "development" || !process.env.RENDER;
 
 /** Jobber som kjører akkurat nå. Selve tilstanden ligger på disk. */
 const kjorer = new Set<string>();
@@ -76,7 +83,85 @@ async function ruter(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
   const sti = url.pathname;
 
+  // Render sjekker denne før tjenesten regnes som oppe.
   if (sti === "/healthz") return json(res, 200, { ok: true, kjorer: kjorer.size });
+
+  if (auth) {
+    if (sti === "/auth/login") {
+      const state = nyState();
+      res.writeHead(302, {
+        location: loginUrl(auth, state),
+        "set-cookie": settStateCookie(state, auth),
+      });
+      res.end();
+      return;
+    }
+
+    if (sti === "/auth/callback") {
+      const kode = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      // Uten state-sjekk kan noen lure en innlogget bruker til å bli logget
+      // inn som seg selv (CSRF mot innloggingen).
+      if (!kode || !state || state !== lesState(req)) {
+        return visFeil(res, "Innloggingen ble avbrutt eller manipulert. Prøv på nytt.");
+      }
+      let epost: string;
+      try {
+        epost = await hentEpost(kode, auth);
+      } catch (e) {
+        return visFeil(res, e instanceof Error ? e.message : "Innlogging feilet.");
+      }
+      // Googles hd-parameter er bare et hint. Den ekte sperren er her.
+      if (!harLovligDomene(epost, auth.allowedDomain)) {
+        return visFeil(
+          res,
+          `Kontoen ${epost} har ikke tilgang. Logg inn med en @${auth.allowedDomain}-konto.`,
+        );
+      }
+      res.writeHead(302, {
+        location: "/",
+        "set-cookie": lagSessionCookie(
+          { email: epost, exp: Date.now() + sesjonsvarighet }, auth,
+        ),
+      });
+      res.end();
+      return;
+    }
+
+    if (sti === "/auth/logout") {
+      slettCookies(res);
+      res.writeHead(302, { location: "/auth/login" });
+      res.end();
+      return;
+    }
+
+    const sesjon = lesSession(req, auth);
+    if (!sesjon) {
+      // Nettlesere sendes til innlogging; API-kall får et svar de kan tolke.
+      if ((req.headers.accept ?? "").includes("text/html")) {
+        res.writeHead(302, { location: "/auth/login" });
+        res.end();
+      return;
+      }
+      return json(res, 401, { error: "Ikke innlogget.", login: "/auth/login" });
+    }
+    if (sti === "/auth/me") return json(res, 200, { email: sesjon.email });
+  } else if (!LOKALT) {
+    // Uten innlogging ville appen stått åpen på internett. Da svarer vi ikke.
+    return json(res, 503, {
+      error:
+        "Innlogging er ikke satt opp. Sett GOOGLE_CLIENT_ID, " +
+        "GOOGLE_CLIENT_SECRET, SESSION_SECRET og PUBLIC_URL i miljøet. " +
+        "Tjenesten nekter å kjøre åpent.",
+    });
+  }
+
+  if (sti === "/api/config") {
+    return json(res, 200, {
+      cue: { host: cfg.cueHost, publication: cfg.cuePublication },
+      innlogging: Boolean(auth),
+    });
+  }
 
   if (sti === "/api/rosters" && req.method === "GET") {
     return json(res, 200, (await lister.list()).map((l) => ({
@@ -191,6 +276,16 @@ const oppsummer = (j: Job) => ({
   antallArtikler: j.articles.length,
 });
 
+function visFeil(res: ServerResponse, melding: string): void {
+  res.writeHead(403, { "content-type": "text/html; charset=utf-8" });
+  res.end(`<!doctype html><meta charset="utf-8">
+<title>Ingen tilgang</title>
+<body style="font:16px/1.6 system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem">
+<h1 style="font-size:1.2rem">Ingen tilgang</h1>
+<p>${melding.replace(/[<>&]/g, "")}</p>
+<p><a href="/auth/login">Prøv igjen</a></p>`);
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -223,4 +318,11 @@ createServer((req, res) => {
   console.log(`møteskriver lytter på :${PORT}`);
   console.log(`  data:  ${cfg.dataDir}`);
   console.log(`  asr:   ${cfg.asrProvider}    video: ${cfg.videoProvider}`);
+  console.log(
+    auth
+      ? `  auth:  Google SSO, kun @${auth.allowedDomain}`
+      : LOKALT
+        ? "  auth:  AV (lokal kjøring)"
+        : "  auth:  MANGLER – tjenesten vil nekte alle forespørsler",
+  );
 });

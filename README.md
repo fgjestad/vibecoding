@@ -13,6 +13,46 @@ npm run dev          # webtjenesten på http://localhost:3000
 npm run kjor -- <video-id>   # eller kommandolinja
 ```
 
+## Adgangskontroll
+
+Google SSO. Bare kontoer på `ALLOWED_DOMAIN` (som standard `amedia.no`)
+slipper inn.
+
+Er innlogging ikke satt opp, **nekter tjenesten å svare** utenfor localhost.
+En app som transkriberer politiske møter skal ikke kunne bli stående åpen på
+internett fordi noen glemte en miljøvariabel.
+
+Oppsett i [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+→ Create credentials → OAuth client ID → Web application:
+
+```
+Authorized redirect URI:  <PUBLIC_URL>/auth/callback
+```
+
+Så i Render: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_URL`.
+`SESSION_SECRET` lager Render selv.
+
+Googles `hd`-parameter brukes som hint til kontovelgeren, men den er ikke en
+sikkerhetsgrense — domenet sjekkes på nytt server-side når svaret kommer, og
+ved hver forespørsel.
+
+## Cue-eksport
+
+Hver genererte tekst har en **Send til Cue**-knapp som åpner et ferdig utfylt
+utkast i Cue.
+
+```
+CUE_HOST=https://raumne.cue.api.no
+CUE_PUBLICATION=raumnes
+```
+
+Les begge av fra adressefeltet når du starter en vanlig ny artikkel i Cue.
+Vert og publikasjon er ikke nødvendigvis like — Raumnes har verten `raumne`
+og publikasjonen `raumnes`.
+
+Det er ingen integrasjon: appen bygger en URL og åpner den. Autentiseringen
+er allerede løst ved at journalisten er innlogget i Cue i samme nettleser.
+
 ## Deploy til Render
 
 Repoet har en blueprint. I Render: **New → Blueprint** → velg repoet. Render

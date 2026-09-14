@@ -31,7 +31,27 @@ services:
       - key: VIDEO_PROVIDER
         value: flowplayer
 
+      # Bare @amedia.no-kontoer slipper inn.
+      - key: ALLOWED_DOMAIN
+        value: amedia.no
+      # Appens egen adresse. Må stemme med Authorized redirect URI i Google.
+      - key: PUBLIC_URL
+        sync: false
       # Settes i Render-dashbordet, ikke her.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Render lager en tilfeldig verdi. Byttes den, logges alle ut.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # Cue-instansen tekstene eksporteres til.
+      - key: CUE_HOST
+        sync: false
+      - key: CUE_PUBLICATION
+        sync: false
+
       - key: ASSEMBLYAI_API_KEY
         sync: false
       - key: FLOWPLAYER_API_KEY

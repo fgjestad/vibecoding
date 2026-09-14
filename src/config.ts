@@ -15,6 +15,9 @@ export interface Config {
   /** Opus-bitrate. 24k er standardvalget: 4 timer blir ~43 MB, og de 14 MB
    *  ekstra over 16k er billig forsikring på gjenkjenningskvalitet. */
   audioBitrate: string;
+  /** Cue-instansen tekstene eksporteres til. Per avis. */
+  cueHost: string;
+  cuePublication: string;
   dataDir: string;
   mockTranscript: string;
   mockVideo: string;
@@ -51,6 +54,8 @@ export function loadConfig(env = process.env): Config {
     assemblyAiKey: ren(env.ASSEMBLYAI_API_KEY),
     geminiModel: env.GEMINI_MODEL ?? "gemini-2.5-pro",
     audioBitrate: env.AUDIO_BITRATE ?? "24k",
+    cueHost: ren(env.CUE_HOST).replace(/\/$/, ""),
+    cuePublication: ren(env.CUE_PUBLICATION),
     dataDir: resolve(env.DATA_DIR ?? "./data"),
     mockTranscript: resolve(env.MOCK_TRANSCRIPT ?? "./fixtures/transkript.json"),
     mockVideo: resolve(env.MOCK_VIDEO ?? "./fixtures/moete.mp4"),

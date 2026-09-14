@@ -92,7 +92,10 @@ button.sekundar { background: transparent; color: var(--aksent); border: 1px sol
 </head>
 <body>
 <div class="ramme">
-  <h1>møteskriver</h1>
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+    <h1>møteskriver</h1>
+    <div id="bruker" class="hint"></div>
+  </div>
   <p class="undertittel">Transkriberer kommunale møteopptak og skriver artikkelutkast med kilder tilbake til videoen.</p>
 
   <!-- ---------- Ny jobb ---------- -->
@@ -169,7 +172,50 @@ const GAAR = ["opprettet","henter-lyd","leser-dokument","transkriberer","matcher
 const merke = (s) =>
   `<span class="merke ${s==="feilet"?"feil":s==="klar"?"klar":GAAR.includes(s)?"gaar":""}">${esc(s)}</span>`;
 
-let valgt = null, timer = null;
+let valgt = null, timer = null, oppsett = { cue: {} };
+
+// ---------- Cue-eksport ----------
+// Mekanismen er en URL, ikke et API: Cue åpner et ferdig utfylt utkast når
+// brukeren allerede er innlogget i Cue i samme nettleser.
+function cueBody(brodtekst) {
+  // Første avsnitt blir ingress, slik en journalist ville satt den opp.
+  const avsnitt = brodtekst.split(/\n\s*\n/).map((a) => a.trim()).filter(Boolean);
+  return {
+    ingress: avsnitt[0] ?? "",
+    // Cue tar bare en hvitliste av tagger, og stripper alle attributter.
+    body: avsnitt.slice(1).map((a) => `<p>${esc(a)}</p>`).join(""),
+  };
+}
+
+function sendTilCue(artikkel, idSuffiks) {
+  const host = (oppsett.cue.host || "").replace(/\/$/, "");
+  const pub = oppsett.cue.publication || "";
+  if (!host || !pub) {
+    alert("Cue er ikke satt opp. Sett CUE_HOST og CUE_PUBLICATION i miljøet.");
+    return;
+  }
+
+  const { ingress, body } = cueBody(artikkel.body);
+  const base = `${host}/webservice/escenic/publication/${pub}`;
+  const extra = {
+    // De to URI-feltene MÅ ha denne innpakningen – rene strenger ignoreres.
+    modelURI:        { string: `${base}/model/content-type/story`, "$class": "URI" },
+    homePublication: { string: `${base}/`,                         "$class": "URI" },
+    container: false,
+    // title/leadtext/body må ligge inne i values. På toppnivå åpnes
+    // artikkelen tom, uten feilmelding.
+    values: { title: artikkel.headline, leadtext: ingress, body },
+  };
+
+  const params =
+    "uri=" + encodeURIComponent(`moteskriver-${idSuffiks}-${Date.now()}`) +
+    "&mimetype=" + encodeURIComponent("x-ece/new-content;type=story") +
+    "&extra=" + encodeURIComponent(JSON.stringify(extra));
+
+  // Firkantkrøllen er avgjørende. Uten den ser Cue-appen aldri parameterne,
+  // brukeren havner på forsiden, og ingenting sier ifra.
+  window.open(`${host}/#/main?${params}`, "_blank");
+}
 
 // ---------- Start ----------
 $("#start").onclick = async () => {
@@ -379,10 +425,22 @@ function artikkelVisning(a, j) {
     ${c.speakerPersonId ? `<strong>${esc(navn.get(c.speakerPersonId) ?? "")}</strong>: ` : ""}
     «${esc(c.quote)}»
   </div>`).join("")}
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--kant)">
+    <button class="tilCue" data-artikkel="${esc(String(j.articles.indexOf(a)))}"
+            data-jobb="${esc(j.id)}">Send til Cue</button>
+    <span class="hint" style="margin-left:10px">Åpner et nytt utkast i Cue i egen fane.</span>
+  </div>
   </div>`;
 }
 
 function koble(j) {
+  for (const b of document.querySelectorAll(".tilCue")) {
+    b.onclick = () => sendTilCue(
+      j.articles[Number(b.dataset.artikkel)],
+      `${j.id}-${b.dataset.artikkel}`,
+    );
+  }
+
   const lagre = $("#lagreTalere");
   if (lagre) lagre.onclick = async () => {
     lagre.disabled = true;
@@ -434,6 +492,15 @@ function planlegg() {
   const aktiv = document.querySelector(".merke.gaar");
   timer = setTimeout(async () => { await oppdater(); planlegg(); }, aktiv ? 3000 : 15000);
 }
+
+try {
+  oppsett = await api("/api/config");
+  if (oppsett.innlogging) {
+    const meg = await api("/auth/me");
+    $("#bruker").innerHTML =
+      `${esc(meg.email)} · <a href="/auth/logout" style="color:inherit">logg ut</a>`;
+  }
+} catch { /* siden virker uansett */ }
 
 await oppdater();
 planlegg();
