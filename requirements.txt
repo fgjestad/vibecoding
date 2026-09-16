@@ -10,3 +10,4 @@ apscheduler==3.11.3
 tzdata==2026.3
 icalendar==7.3.0
 recurring-ical-events==3.8.2
+pypdf==6.1.1

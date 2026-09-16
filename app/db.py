@@ -127,6 +127,8 @@ def _migrer_manuell_kilde_tabell() -> None:
             conn.execute(
                 text("ALTER TABLE manuellkilde ADD COLUMN uttrekk_redigert BOOLEAN NOT NULL DEFAULT 0")
             )
+        if "sist_rasvar" not in kolonner:
+            conn.execute(text("ALTER TABLE manuellkilde ADD COLUMN sist_rasvar TEXT"))
 
 
 def init_db() -> None:

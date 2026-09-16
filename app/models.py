@@ -143,6 +143,13 @@ class ManuellKilde(SQLModel, table=True):
         description="True hvis uttrekket er håndredigert. Brukes kun til å advare før "
         "'Kjør på nytt', som erstatter hele listen med en ny AI-tolkning.",
     )
+    sist_rasvar: Optional[str] = Field(
+        default=None,
+        description="Claudes ubehandlede svar fra siste tolkning, lagret KUN når tolkningen ga "
+        "null arrangementer. Uten dette er en mislykket innlesning umulig å feilsøke fra UI-et: "
+        "man ser at ingenting kom ut, men ikke om Claude svarte at den ikke fant noe, svarte i "
+        "feil format, eller ble avkuttet.",
+    )
     aktiv: bool = Field(default=True)
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
     sist_kjort_at: Optional[datetime] = Field(default=None)

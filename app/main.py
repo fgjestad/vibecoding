@@ -1078,18 +1078,19 @@ def _kjor_en_manuell_kilde(
         try:
             instruks_uten_periode = instruks_for_manuell_kilde()
             if mk.kilde_type == "skjermdump":
-                rå = hent_fra_bilde(
+                rå, rasvar = hent_fra_bilde(
                     mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
                     instruks=instruks_uten_periode,
                 )
             elif mk.kilde_type == "pdf":
-                rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
+                rå, rasvar = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
             else:
-                rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
+                rå, rasvar = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
         except Exception as e:
             return f"{mk.navn} ({e})"
 
         mk.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
+        mk.sist_rasvar = None if rå else rasvar
         mk.uttrekk_redigert = False
         mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
 
@@ -1426,9 +1427,9 @@ async def last_opp_fil(
     instruks_uten_periode = instruks_for_manuell_kilde()
     try:
         if er_pdf:
-            rå = hent_fra_pdf(innhold, forste_dag, siste_dag, instruks=instruks_uten_periode)
+            rå, rasvar = hent_fra_pdf(innhold, forste_dag, siste_dag, instruks=instruks_uten_periode)
         else:
-            rå = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag, instruks=instruks_uten_periode)
+            rå, rasvar = hent_fra_bilde(innhold, fil.content_type, forste_dag, siste_dag, instruks=instruks_uten_periode)
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
@@ -1449,6 +1450,7 @@ async def last_opp_fil(
             innhold_media_type=None if er_pdf else fil.content_type,
             utlopsdato=_beregn_utlopsdato(rå),
             sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
+            sist_rasvar=None if rå else rasvar,
             sist_kjort_at=datetime.utcnow(),
         )
     )
@@ -1486,7 +1488,7 @@ async def lim_inn_tekst(
         )
 
     try:
-        rå = hent_fra_tekst(tekst, forste_dag, siste_dag, instruks=instruks_for_manuell_kilde())
+        rå, rasvar = hent_fra_tekst(tekst, forste_dag, siste_dag, instruks=instruks_for_manuell_kilde())
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
@@ -1500,6 +1502,7 @@ async def lim_inn_tekst(
             innhold_tekst=tekst,
             utlopsdato=_beregn_utlopsdato(rå),
             sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
+            sist_rasvar=None if rå else rasvar,
             sist_kjort_at=datetime.utcnow(),
         )
     )

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import html
+import io
 import json
 import os
 import re
@@ -924,17 +925,87 @@ def beregn_signatur(tittel: str, arrangor: str | None, dato_str: str) -> str:
     return hashlib.sha256(grunnlag.encode()).hexdigest()[:16]
 
 
+def _balansert_json_liste(tekst: str, start: int) -> str | None:
+    """Leser ut et komplett JSON-array som starter på posisjonen 'start', ved å telle
+    klammer og hoppe over strenger/escape-tegn. Returnerer None hvis arrayet aldri lukkes
+    (typisk et avkuttet svar). En grådig regex duger ikke her: den ville spent fra en
+    tilfeldig klammeparentes i Claudes innledende tekst helt fram til siste ']' i svaret."""
+    dybde = 0
+    i_streng = False
+    escaped = False
+    for i in range(start, len(tekst)):
+        tegn = tekst[i]
+        if i_streng:
+            if escaped:
+                escaped = False
+            elif tegn == "\\":
+                escaped = True
+            elif tegn == '"':
+                i_streng = False
+            continue
+        if tegn == '"':
+            i_streng = True
+        elif tegn in "[{":
+            dybde += 1
+        elif tegn in "]}":
+            dybde -= 1
+            if dybde == 0:
+                return tekst[start : i + 1]
+    return None
+
+
+def _redd_avkuttet_json_liste(tekst: str, start: int) -> list[dict]:
+    """Plukker ut de objektene som ligger komplett i et avkuttet JSON-array, i stedet for å
+    kaste hele svaret. Et svar som treffer max_tokens midt i siste arrangement inneholder
+    fortsatt alle de foregående arrangementene, og de er det ingen grunn til å miste."""
+    objekter = []
+    i = start
+    while i < len(tekst):
+        if tekst[i] == "{":
+            bit = _balansert_json_liste(tekst, i)
+            if not bit:
+                break
+            try:
+                obj = json.loads(bit)
+            except json.JSONDecodeError:
+                break
+            if isinstance(obj, dict):
+                objekter.append(obj)
+            i += len(bit)
+        else:
+            i += 1
+    return objekter
+
+
 def _parse_json_liste(tekst: str) -> list[dict]:
-    match = re.search(r"\[.*\]", tekst, re.DOTALL)
-    if not match:
+    """Henter arrangementslisten ut av Claudes svar.
+
+    Svaret er bedt om å være kun et JSON-array, men kan i praksis ha en innledende setning
+    foran seg, eller være avkuttet av max_tokens. Begge deler håndteres her — tidligere ga
+    begge stille null treff, som er umulig å feilsøke fra UI-et."""
+    kandidater: list[list[dict]] = []
+    for treff in re.finditer(r"\[", tekst):
+        start = treff.start()
+        bit = _balansert_json_liste(tekst, start)
+        if bit:
+            try:
+                data = json.loads(bit)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, list):
+                kandidater.append([e for e in data if isinstance(e, dict)])
+        else:
+            # Arrayet lukkes aldri — svaret er avkuttet. Redd det som er komplett.
+            reddet = _redd_avkuttet_json_liste(tekst, start)
+            if reddet:
+                kandidater.append(reddet)
+
+    if not kandidater:
         return []
-    try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [e for e in data if isinstance(e, dict) and e.get("tittel") and e.get("dato")]
+    # Flere "["-posisjoner kan gi gyldige treff (f.eks. en klammeparentes i innledningen).
+    # Den faktiske arrangementslisten er den som gir flest brukbare arrangementer.
+    beste = max(kandidater, key=lambda k: len([e for e in k if e.get("tittel") and e.get("dato")]))
+    return [e for e in beste if e.get("tittel") and e.get("dato")]
 
 
 class _TekstUttrekker(HTMLParser):
@@ -1463,22 +1534,31 @@ def hent_fra_bilde(
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
-) -> list[dict]:
-    """Tolker en skjermdump (bilde) og henter ut arrangementer."""
+) -> tuple[list[dict], str]:
+    """Tolker en skjermdump (bilde) og henter ut arrangementer.
+
+    Returnerer (arrangementer, rå_svar). Rå-svaret returneres slik at det kan lagres og vises
+    i UI-et når tolkningen ga null treff — uten det er en mislykket innlesning umulig å
+    feilsøke, siden man ikke kan se hva Claude faktisk svarte."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return []
+        return [], ""
 
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
     b64 = base64.standard_b64encode(data).decode("utf-8")
-    prompt = f"""Dette er en skjermdump av et innlegg/en side om ett eller flere arrangementer \
-(f.eks. fra Facebook). Se på bildet og hent ut arrangementene som er omtalt.
+    prompt = f"""Dette er en skjermdump av et innlegg eller en side med én eller flere \
+arrangementsannonser — det kan være et Facebook-innlegg, men også en hel annonseside fra \
+papiravisen med mange små, urelaterte annonser under hverandre. Gå systematisk gjennom HELE \
+bildet og hent ut alle arrangementene du finner, også de i de minste annonsene.
+
+Merk at én annonse kan inneholde FLERE arrangementer — f.eks. en møteserie som lister opp en \
+rekke datoer. Da skal hver dato bli sitt eget arrangement.
 
 {instruks}
 """
     response = client.messages.create(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         output_config={"effort": "medium"},
         messages=[
             {
@@ -1494,13 +1574,25 @@ def hent_fra_bilde(
         ],
     )
 
-    tekst = "".join(b.text for b in response.content if b.type == "text")
-    arrangementer = _parse_json_liste(tekst)
+    svar = "".join(b.text for b in response.content if b.type == "text")
+    arrangementer = _parse_json_liste(svar)
     for a in arrangementer:
         a["kilde_type"] = "skjermdump"
         a["kilde_url"] = None
         a["tekst_bekreftet"] = False
-    return arrangementer
+    return arrangementer, svar
+
+
+def _pdf_tekstlag(data: bytes) -> str:
+    """Henter ut tekstlaget fra en PDF. Tom streng hvis PDF-en ikke har et brukbart tekstlag
+    (skannet side/rent bilde) eller ikke lar seg lese."""
+    try:
+        from pypdf import PdfReader
+
+        leser = PdfReader(io.BytesIO(data))
+        return "\n".join((side.extract_text() or "") for side in leser.pages).strip()
+    except Exception:
+        return ""
 
 
 def hent_fra_pdf(
@@ -1508,48 +1600,71 @@ def hent_fra_pdf(
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
-) -> list[dict]:
-    """Tolker en PDF (f.eks. papiravis-annonse) og henter ut arrangementer."""
+) -> tuple[list[dict], str]:
+    """Tolker en PDF (f.eks. en annonseside fra papiravisen) og henter ut arrangementer.
+
+    Avissider eksportert til PDF har som regel et intakt tekstlag. Når det finnes, sendes
+    teksten i stedet for selve PDF-en: det er billigere (en avisside er noen hundre tokens som
+    tekst, mot en full sideopptegning som dokument), mer stabilt, og — viktigst — det lar oss
+    verifisere original_tekst ordrett mot kilden i kode, slik vi gjør for nettsider og limt inn
+    tekst. Mangler tekstlaget (skannet side), sendes PDF-en som dokument som før.
+
+    Returnerer (arrangementer, rå_svar)."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return []
+        return [], ""
 
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
-    b64 = base64.standard_b64encode(data).decode("utf-8")
-    prompt = f"""Dette er en PDF med én eller flere arrangementsannonser (f.eks. fra \
-papiravisen). Se gjennom dokumentet og hent ut arrangementene som er omtalt.
+    felles = """Merk at én annonse kan inneholde FLERE arrangementer — f.eks. en møteserie som \
+lister opp en rekke datoer. Da skal hver dato bli sitt eget arrangement."""
+
+    tekstlag = _pdf_tekstlag(data)
+    if len(tekstlag) >= MINSTE_SIDETEKST_LENGDE:
+        prompt = f"""Under er teksten fra en annonseside i papiravisen, hentet automatisk ut av \
+PDF-en. Siden inneholder som regel mange små, urelaterte annonser. Gå systematisk gjennom hele \
+teksten og hent ut alle arrangementene du finner.
+
+{felles}
+
+--- SIDETEKST ---
+{tekstlag[:100000]}
+--- SLUTT SIDETEKST ---
 
 {instruks}
 """
+        innhold = prompt
+    else:
+        b64 = base64.standard_b64encode(data).decode("utf-8")
+        prompt = f"""Dette er en PDF med én eller flere arrangementsannonser (f.eks. en \
+annonseside fra papiravisen, med mange små annonser under hverandre). Gå systematisk gjennom \
+HELE dokumentet og hent ut alle arrangementene du finner, også de i de minste annonsene.
+
+{felles}
+
+{instruks}
+"""
+        innhold = [
+            {
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+            },
+            {"type": "text", "text": prompt},
+        ]
+
     response = client.messages.create(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         output_config={"effort": "medium"},
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "application/pdf",
-                            "data": b64,
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
+        messages=[{"role": "user", "content": innhold}],
     )
 
-    tekst = "".join(b.text for b in response.content if b.type == "text")
-    arrangementer = _parse_json_liste(tekst)
+    svar = "".join(b.text for b in response.content if b.type == "text")
+    arrangementer = _parse_json_liste(svar)
     for a in arrangementer:
         a["kilde_type"] = "pdf"
         a["kilde_url"] = None
-        a["tekst_bekreftet"] = False
-    return arrangementer
+        a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), tekstlag)
+    return arrangementer, svar
 
 
 def hent_fra_tekst(
@@ -1557,17 +1672,22 @@ def hent_fra_tekst(
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], str]:
     """Tolker ren tekst limt inn av brukeren (f.eks. kopiert fra et Facebook-innlegg) og
-    henter ut arrangementer. I motsetning til skjermdump/PDF kan vi her faktisk verifisere
-    ordrett samsvar i kode, siden vi allerede har hele kildeteksten liggende."""
+    henter ut arrangementer. I motsetning til skjermdump kan vi her faktisk verifisere
+    ordrett samsvar i kode, siden vi allerede har hele kildeteksten liggende.
+
+    Returnerer (arrangementer, rå_svar)."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return []
+        return [], ""
 
     instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
     client = Anthropic()
     prompt = f"""Dette er tekst limt inn av brukeren (f.eks. kopiert fra et innlegg om ett \
 eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene som er omtalt.
+
+Merk at teksten kan inneholde FLERE arrangementer — f.eks. en møteserie som lister opp en \
+rekke datoer. Da skal hver dato bli sitt eget arrangement.
 
 --- LIMT INN TEKST ---
 {tekst[:100000]}
@@ -1577,7 +1697,7 @@ eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene 
 """
     response = client.messages.create(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         output_config={"effort": "medium"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -1588,4 +1708,4 @@ eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene 
         a["kilde_type"] = "limt_inn_tekst"
         a["kilde_url"] = None
         a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), tekst)
-    return arrangementer
+    return arrangementer, svar
