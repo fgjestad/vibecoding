@@ -346,12 +346,55 @@
                     <p style="white-space: pre-line; margin: 0.4rem 0 0; font-size: 0.9rem;">{{ mk.innhold_tekst }}</p>
                   </details>
                 {% endif %}
+                {% set uttrekk = mk | uttrekk %}
+                <details style="margin-top: 0.4rem;">
+                  <summary style="cursor: pointer; font-size: 0.85rem;">
+                    Vis hva som ble lest inn ({{ uttrekk | length }} arrangement{{ '' if uttrekk | length == 1 else 'er' }})
+                    {% if mk.uttrekk_redigert %}<span class="tag">håndredigert</span>{% endif %}
+                  </summary>
+                  {% if not uttrekk %}
+                    <p class="meta" style="margin: 0.4rem 0 0;">
+                      Ingen arrangementer ble tolket ut av denne kilden. Legg dem inn manuelt under,
+                      eller trykk «Kjør på nytt» for å la Claude prøve én gang til.
+                    </p>
+                  {% endif %}
+                  <form method="post" action="/manuelle-kilder/{{ mk.id }}/lagre-uttrekk"
+                        style="margin: 0.5rem 0 0; font-size: 0.9rem;">
+                    <p class="meta" style="margin: 0 0 0.4rem;">
+                      Dette er fasiten for kilden — hver innhøsting kopierer herfra de arrangementene
+                      som faller innenfor perioden ({{ forste_dag }} – {{ siste_dag }}).
+                      Tøm tittel eller dato for å fjerne en rad. De tomme radene nederst er for
+                      arrangementer som ikke ble fanget opp.
+                    </p>
+                    {% for u in uttrekk + [{}, {}, {}] %}
+                      {% set i = loop.index0 %}
+                      {% set utenfor = u.dato and not (forste_dag|string <= u.dato <= siste_dag|string) %}
+                      <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;
+                                  margin-bottom: 0.3rem; padding: 0.3rem;
+                                  background: {{ '#faf7ef' if utenfor else 'transparent' }};">
+                        <input type="date" name="dato_{{ i }}" value="{{ u.dato or '' }}" style="width: 9.5rem;" />
+                        <input type="time" name="klokkeslett_{{ i }}" value="{{ u.klokkeslett or '' }}" style="width: 6rem;" />
+                        <input type="text" name="tittel_{{ i }}" value="{{ u.tittel or '' }}"
+                               placeholder="Tittel" style="flex: 1 1 12rem;" />
+                        <input type="text" name="sted_{{ i }}" value="{{ u.sted or '' }}"
+                               placeholder="Sted" style="flex: 1 1 9rem;" />
+                        <input type="text" name="arrangor_{{ i }}" value="{{ u.arrangor or '' }}"
+                               placeholder="Arrangør" style="flex: 1 1 8rem;" />
+                        {% if utenfor %}<span class="tag">utenfor perioden</span>{% endif %}
+                        <input type="text" name="original_tekst_{{ i }}" value="{{ u.original_tekst or '' }}"
+                               placeholder="Original tekst fra kilden" style="flex: 1 1 100%;" />
+                      </div>
+                    {% endfor %}
+                    <button type="submit" class="primær" style="margin-top: 0.3rem;">Lagre endringer</button>
+                  </form>
+                </details>
               </div>
             </div>
             <div style="display: flex; gap: 0.5rem;">
               {% if mk.aktiv %}
-                <form method="post" action="/manuelle-kilder/{{ mk.id }}/kjor-na" style="margin: 0;">
-                  <button type="submit" title="Tolk denne kilden på nytt nå, uten å kjøre resten av innhøstingen">Kjør på nytt</button>
+                <form method="post" action="/manuelle-kilder/{{ mk.id }}/kjor-na" style="margin: 0;"
+                      {% if mk.uttrekk_redigert %}onsubmit="return confirm('Dette lar Claude tolke kilden på nytt, og erstatter endringene du har gjort for hånd. Fortsette?');"{% endif %}>
+                  <button type="submit" title="La Claude tolke denne kilden på nytt nå, uten å kjøre resten av innhøstingen">Kjør på nytt</button>
                 </form>
                 <form method="post" action="/manuelle-kilder/{{ mk.id }}/deaktiver" style="margin: 0;">
                   <button type="submit">Deaktiver</button>

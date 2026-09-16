@@ -111,11 +111,30 @@ def _migrer_innstilling_tabell() -> None:
             )
 
 
+def _migrer_manuell_kilde_tabell() -> None:
+    """Lettvekts-migrering: legger til manglende kolonner på en allerede eksisterende
+    'manuellkilde'-tabell, uten å slette eksisterende rader (de opplastede skjermdumpene/
+    PDF-ene er brukerdata som ikke kan gjenskapes)."""
+    inspector = inspect(engine)
+    if "manuellkilde" not in inspector.get_table_names():
+        return
+
+    kolonner = {kol["name"] for kol in inspector.get_columns("manuellkilde")}
+    with engine.begin() as conn:
+        if "sist_uttrekk_json" not in kolonner:
+            conn.execute(text("ALTER TABLE manuellkilde ADD COLUMN sist_uttrekk_json TEXT"))
+        if "uttrekk_redigert" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE manuellkilde ADD COLUMN uttrekk_redigert BOOLEAN NOT NULL DEFAULT 0")
+            )
+
+
 def init_db() -> None:
     _migrer_arrangement_tabell()
     _migrer_kilde_tabell()
     _migrer_artikkel_tabell()
     _migrer_innstilling_tabell()
+    _migrer_manuell_kilde_tabell()
     SQLModel.metadata.create_all(engine)
 
 

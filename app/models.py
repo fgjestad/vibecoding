@@ -128,6 +128,21 @@ class ManuellKilde(SQLModel, table=True):
         description="YYYY-MM-DD — seneste dato blant arrangementene funnet ved siste "
         "utpakking. Kilden deaktiveres automatisk når denne datoen er passert.",
     )
+    sist_uttrekk_json: Optional[str] = Field(
+        default=None,
+        description="JSON-liste med ALLE arrangementene som ble tolket ut av innholdet, uten "
+        "periodebegrensning. Dette er fasiten for kilden: hver innhøsting kopierer herfra de "
+        "arrangementene som faller innenfor gjeldende periode, i stedet for å tolke "
+        "skjermdumpen/PDF-en med AI på nytt (innholdet er statisk, så ny tolkning koster penger "
+        "uten å gi ny informasjon). Ny tolkning skjer kun via 'Kjør på nytt'. Listen kan "
+        "redigeres manuelt i UI-et — se main.lagre_uttrekk — slik at en feiltolkning kan rettes "
+        "én gang i stedet for på nytt etter hver innhøsting.",
+    )
+    uttrekk_redigert: bool = Field(
+        default=False,
+        description="True hvis uttrekket er håndredigert. Brukes kun til å advare før "
+        "'Kjør på nytt', som erstatter hele listen med en ny AI-tolkning.",
+    )
     aktiv: bool = Field(default=True)
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
     sist_kjort_at: Optional[datetime] = Field(default=None)

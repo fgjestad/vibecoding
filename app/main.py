@@ -110,6 +110,7 @@ templates.env.filters["dedikert"] = er_dedikert_kilde
 templates.env.tests["dedikert"] = er_dedikert_kilde
 templates.env.filters["oslo_tid"] = oslo_tid
 templates.env.filters["datoperiode"] = datoperiode_tekst
+templates.env.filters["uttrekk"] = lambda mk: _uttrekk_for_manuell_kilde(mk) or []
 
 MAKS_SAMTIDIGE_KILDER = 5
 
@@ -1034,6 +1035,18 @@ def _filtrer_til_periode(arrangementer: list[dict], forste_dag: date, siste_dag:
     return [a for a in arrangementer if fra <= str(a.get("dato") or "") <= til]
 
 
+def _uttrekk_for_manuell_kilde(mk: ManuellKilde) -> list[dict] | None:
+    """Leser det lagrede uttrekket for en manuell kilde. None hvis kilden aldri har blitt
+    tolket, eller hvis den lagrede JSON-en er ødelagt — begge deler betyr at den må tolkes."""
+    if not mk.sist_uttrekk_json:
+        return None
+    try:
+        data = json.loads(mk.sist_uttrekk_json)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, list) else None
+
+
 def _kjor_en_manuell_kilde(
     session: Session,
     mk: ManuellKilde,
@@ -1045,28 +1058,41 @@ def _kjor_en_manuell_kilde(
     flerdags_kandidater: list[Arrangement],
     berorte_grupper: set[str],
     ikke_duplikat_par: set[frozenset[str]],
+    tving_ny_tolkning: bool = False,
 ) -> str | None:
-    """Henter og lagrer arrangementer fra ÉN manuell kilde (skjermdump/PDF/limt inn tekst) på
-    nytt, og oppdaterer kildens utløpsdato/sist_kjort_at/aktiv-status. Brukt både av
-    _kjor_manuelle_kilder (alle aktive kilder, som del av en full innhøsting) og av
-    kjor_manuell_kilde_na-ruta ("Kjør på nytt"-knappen for én enkelt kilde, uten å røre resten
-    av innhøstingen). Returnerer en feilmelding hvis hentingen feilet, ellers None."""
-    i_dag = date.today().isoformat()
-    try:
-        instruks_uten_periode = instruks_for_manuell_kilde()
-        if mk.kilde_type == "skjermdump":
-            rå = hent_fra_bilde(
-                mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
-                instruks=instruks_uten_periode,
-            )
-        elif mk.kilde_type == "pdf":
-            rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
-        else:
-            rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
-    except Exception as e:
-        return f"{mk.navn} ({e})"
+    """Kopierer arrangementene fra ÉN manuell kilde (skjermdump/PDF/limt inn tekst) inn i
+    utkastet, og oppdaterer kildens utløpsdato/sist_kjort_at/aktiv-status.
 
-    mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
+    Innholdet tolkes med AI kun når det ikke finnes et lagret uttrekk fra før, eller når
+    tving_ny_tolkning er satt ("Kjør på nytt"-knappen). Ellers gjenbrukes det lagrede
+    uttrekket: innholdet er statisk, så en ny tolkning koster penger uten å gi ny informasjon —
+    og den ville dessuten overskrevet eventuelle håndredigeringer (se lagre_uttrekk).
+
+    Brukt både av _kjor_manuelle_kilder (alle aktive kilder, som del av en full innhøsting) og
+    av kjor_manuell_kilde_na-ruta. Returnerer en feilmelding hvis tolkningen feilet, ellers
+    None."""
+    i_dag = date.today().isoformat()
+
+    rå = None if tving_ny_tolkning else _uttrekk_for_manuell_kilde(mk)
+    if rå is None:
+        try:
+            instruks_uten_periode = instruks_for_manuell_kilde()
+            if mk.kilde_type == "skjermdump":
+                rå = hent_fra_bilde(
+                    mk.innhold_bytes, mk.innhold_media_type, forste_dag, siste_dag,
+                    instruks=instruks_uten_periode,
+                )
+            elif mk.kilde_type == "pdf":
+                rå = hent_fra_pdf(mk.innhold_bytes, forste_dag, siste_dag, instruks=instruks_uten_periode)
+            else:
+                rå = hent_fra_tekst(mk.innhold_tekst, forste_dag, siste_dag, instruks=instruks_uten_periode)
+        except Exception as e:
+            return f"{mk.navn} ({e})"
+
+        mk.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
+        mk.uttrekk_redigert = False
+        mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
+
     mk.sist_kjort_at = datetime.utcnow()
     if mk.utlopsdato and mk.utlopsdato < i_dag:
         mk.aktiv = False
@@ -1422,6 +1448,7 @@ async def last_opp_fil(
             innhold_bytes=innhold,
             innhold_media_type=None if er_pdf else fil.content_type,
             utlopsdato=_beregn_utlopsdato(rå),
+            sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
             sist_kjort_at=datetime.utcnow(),
         )
     )
@@ -1472,6 +1499,7 @@ async def lim_inn_tekst(
             navn=(tekst.strip()[:60] + "…") if len(tekst.strip()) > 60 else tekst.strip(),
             innhold_tekst=tekst,
             utlopsdato=_beregn_utlopsdato(rå),
+            sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
             sist_kjort_at=datetime.utcnow(),
         )
     )
@@ -1567,6 +1595,9 @@ def kjor_manuell_kilde_na(
     feilmelding = _kjor_en_manuell_kilde(
         session, mk, forste_dag, siste_dag, sett_ider, ekskluderte, hittil_pr_dato,
         flerdags_kandidater, berorte_grupper, ikke_duplikat_par,
+        # "Kjør på nytt" er nettopp knappen for å be om en NY AI-tolkning — ellers ville den
+        # bare kopiert det lagrede uttrekket ned igjen og sett ut som om den ikke gjorde noe.
+        tving_ny_tolkning=True,
     )
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
 
@@ -1575,6 +1606,67 @@ def kjor_manuell_kilde_na(
             "innhosting.html",
             _innhosting_kontekst(request, session, f"Kunne ikke kjøre {mk.navn} på nytt: {feilmelding}", rolle),
         )
+    return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/manuelle-kilder/{manuell_kilde_id}/lagre-uttrekk")
+async def lagre_uttrekk(
+    manuell_kilde_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_passord),
+):
+    """Lagrer håndredigeringer av det tolkede uttrekket for én manuell kilde.
+
+    Uttrekket er fasiten som hver innhøsting kopierer fra (se _kjor_en_manuell_kilde), så en
+    retting her slår gjennom ved alle senere kjøringer — i motsetning til å rette arrangementet
+    i utkastet, som ville blitt overskrevet av kilden ved neste innhøsting.
+
+    Skjemaet sender ett sett felter per rad (dato_N, klokkeslett_N, ...). Rader uten tittel
+    eller dato faller ut; det er slik man sletter en feiltolkning, og tomme rader nederst i
+    skjemaet er slik man legger til et arrangement AI-en ikke fikk med seg."""
+    mk = session.get(ManuellKilde, manuell_kilde_id)
+    if not mk:
+        raise HTTPException(status_code=404, detail="Fant ikke denne manuelle kilden.")
+
+    skjema = await request.form()
+    indekser = sorted(
+        {int(n.split("_")[-1]) for n in skjema if n.startswith("dato_") and n.split("_")[-1].isdigit()}
+    )
+
+    uttrekk = []
+    for i in indekser:
+        tittel = str(skjema.get(f"tittel_{i}") or "").strip()
+        dato = str(skjema.get(f"dato_{i}") or "").strip()
+        if not tittel or not dato:
+            continue
+        uttrekk.append(
+            {
+                "tittel": tittel,
+                "dato": dato,
+                "klokkeslett": str(skjema.get(f"klokkeslett_{i}") or "").strip() or None,
+                "sted": str(skjema.get(f"sted_{i}") or "").strip(),
+                "arrangor": str(skjema.get(f"arrangor_{i}") or "").strip() or None,
+                "original_tekst": str(skjema.get(f"original_tekst_{i}") or "").strip(),
+                "geografisk_relevans": "bekreftet",
+                "kilde_type": mk.kilde_type,
+                "kilde_url": None,
+                # Håndredigert tekst er per definisjon ikke lenger et ordrett maskinelt uttrekk
+                # fra kilden, så den skal ikke kunne fremstå som kode-verifisert i utkastet.
+                "tekst_bekreftet": False,
+            }
+        )
+
+    uttrekk.sort(key=lambda a: (a["dato"], a["klokkeslett"] or ""))
+    mk.sist_uttrekk_json = json.dumps(uttrekk, ensure_ascii=False)
+    mk.uttrekk_redigert = True
+    mk.utlopsdato = _beregn_utlopsdato(uttrekk)
+    # En kilde som var deaktivert fordi alt var utløpt, skal kunne vekkes igjen ved at man
+    # legger inn en dato fram i tid.
+    if mk.utlopsdato and mk.utlopsdato >= date.today().isoformat():
+        mk.aktiv = True
+    session.add(mk)
+    session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
