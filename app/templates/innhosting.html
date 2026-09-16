@@ -357,18 +357,20 @@
                       Ingen arrangementer ble tolket ut av denne kilden. Legg dem inn manuelt under,
                       eller trykk «Kjør på nytt» for å la Claude prøve én gang til.
                     </p>
-                    {% if mk.sist_rasvar %}
-                      <details style="margin: 0.4rem 0 0;">
-                        <summary style="cursor: pointer; font-size: 0.85rem;">Vis Claudes rå svar</summary>
-                        <p class="meta" style="margin: 0.3rem 0;">
-                          Dette er hva Claude faktisk svarte. Står det en forklaring her i stedet for
-                          en liste, fant den ingenting. Stopper teksten brått midt i, ble svaret for langt.
-                        </p>
-                        <pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.8rem;
-                                    background: #f4f1ea; padding: 0.5rem; max-height: 20rem;
-                                    overflow: auto;">{{ mk.sist_rasvar }}</pre>
-                      </details>
-                    {% endif %}
+                  {% endif %}
+                  {% if mk.sist_rasvar %}
+                    <details style="margin: 0.4rem 0 0;">
+                      <summary style="cursor: pointer; font-size: 0.85rem;">Vis Claudes rå svar</summary>
+                      <p class="meta" style="margin: 0.3rem 0;">
+                        Dette er hva Claude faktisk svarte ved siste tolkning, før listen over ble
+                        laget av det. Tell gjerne etter: står det flere arrangementer her enn i listen,
+                        har noe falt ut i tolkningen. Stopper teksten brått midt i, ble svaret for langt.
+                        Er det en forklaring i stedet for en liste, fant Claude ingenting.
+                      </p>
+                      <pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.8rem;
+                                  background: #f4f1ea; padding: 0.5rem; max-height: 20rem;
+                                  overflow: auto;">{{ mk.sist_rasvar }}</pre>
+                    </details>
                   {% endif %}
                   <form method="post" action="/manuelle-kilder/{{ mk.id }}/lagre-uttrekk"
                         style="margin: 0.5rem 0 0; font-size: 0.9rem;">

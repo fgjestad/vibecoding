@@ -145,10 +145,11 @@ class ManuellKilde(SQLModel, table=True):
     )
     sist_rasvar: Optional[str] = Field(
         default=None,
-        description="Claudes ubehandlede svar fra siste tolkning, lagret KUN når tolkningen ga "
-        "null arrangementer. Uten dette er en mislykket innlesning umulig å feilsøke fra UI-et: "
-        "man ser at ingenting kom ut, men ikke om Claude svarte at den ikke fant noe, svarte i "
-        "feil format, eller ble avkuttet.",
+        description="Claudes ubehandlede svar fra siste tolkning. Lagres alltid, ikke bare ved "
+        "null treff: en DELVIS feil er den vanskeligste å oppdage — leses 11 av 15 annonser på "
+        "en side, ser de 11 helt riktige ut og ingenting røper at fire mangler. Ved å ha rå-"
+        "svaret tilgjengelig kan man telle etter og se hva Claude faktisk svarte, mot hva "
+        "tolkningen fikk ut av det.",
     )
     aktiv: bool = Field(default=True)
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)

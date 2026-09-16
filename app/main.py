@@ -1090,7 +1090,7 @@ def _kjor_en_manuell_kilde(
             return f"{mk.navn} ({e})"
 
         mk.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
-        mk.sist_rasvar = None if rå else rasvar
+        mk.sist_rasvar = rasvar
         mk.uttrekk_redigert = False
         mk.utlopsdato = _beregn_utlopsdato(rå) or mk.utlopsdato
 
@@ -1450,7 +1450,7 @@ async def last_opp_fil(
             innhold_media_type=None if er_pdf else fil.content_type,
             utlopsdato=_beregn_utlopsdato(rå),
             sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
-            sist_rasvar=None if rå else rasvar,
+            sist_rasvar=rasvar,
             sist_kjort_at=datetime.utcnow(),
         )
     )
@@ -1502,7 +1502,7 @@ async def lim_inn_tekst(
             innhold_tekst=tekst,
             utlopsdato=_beregn_utlopsdato(rå),
             sist_uttrekk_json=json.dumps(rå, ensure_ascii=False),
-            sist_rasvar=None if rå else rasvar,
+            sist_rasvar=rasvar,
             sist_kjort_at=datetime.utcnow(),
         )
     )
