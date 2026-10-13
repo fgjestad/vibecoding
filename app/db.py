@@ -54,6 +54,10 @@ def _migrer_kilde_tabell() -> None:
             conn.execute(text("ALTER TABLE kilde ADD COLUMN sist_sidetekst_hash TEXT"))
         if "sist_uttrekk_json" not in kolonner:
             conn.execute(text("ALTER TABLE kilde ADD COLUMN sist_uttrekk_json TEXT"))
+        if "tomme_kjoringer_paa_rad" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE kilde ADD COLUMN tomme_kjoringer_paa_rad INTEGER NOT NULL DEFAULT 0")
+            )
 
 
 def _migrer_artikkel_tabell() -> None:

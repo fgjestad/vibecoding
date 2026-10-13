@@ -19,6 +19,15 @@ class Kilde(SQLModel, table=True):
     antall_feilede_hentinger: int = Field(
         default=0, description="Antall innhøstingskjøringer denne kilden har feilet under"
     )
+    tomme_kjoringer_paa_rad: int = Field(
+        default=0,
+        description="Antall innhøstinger på rad der kilden svarte helt fint, men ikke inneholdt "
+        "et eneste arrangement. Dette er den stille feilen: antall_feilede_hentinger teller kun "
+        "kjøringer som KRASJET, så en kilde som er bygget om og ikke lenger har arrangementer "
+        "ser frisk ut for alltid. Telleren nullstilles så snart kilden gir treff igjen. "
+        "Tomt uttrekk ≠ null arrangementer lagret: en kilde kan finne ti arrangementer som alle "
+        "er duplikater fra andre kilder, og den fungerer da helt som den skal.",
+    )
     sist_sidetekst_hash: Optional[str] = Field(
         default=None,
         description="Sjekksum av sideteksten som sist ble tolket med AI. Er den uendret ved "

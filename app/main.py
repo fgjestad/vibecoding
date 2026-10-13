@@ -115,6 +115,12 @@ templates.env.filters["uttrekk"] = lambda mk: _uttrekk_for_manuell_kilde(mk) or 
 
 MAKS_SAMTIDIGE_KILDER = 5
 
+# Antall innhøstinger på rad uten et eneste arrangement før kilden flagges for ettersyn.
+# Tre, ikke én: en rolig uke er normalt for en liten lokal kilde, og et varsel som roper ved
+# første stille kjøring er et varsel brukeren lærer seg å overse. Flagget deaktiverer aldri
+# kilden selv — sesongkilder (skiklubbens program om sommeren) ville blitt slått av hver vår.
+TOMME_KJORINGER_FOR_VARSEL = 3
+
 KALENDER_FOTNOTE_URL = "https://www.nes.kommune.no/aktivitetskalender/"
 KALENDER_FOTNOTE = (
     "Denne kalenderen er laget ved hjelp av kunstig intelligens og er gått gjennom av en "
@@ -244,9 +250,18 @@ def oppdater_auto_innhosting(
 
 def _kildeliste_respons(request: Request, session: Session, melding: str | None = None):
     kilder = session.exec(select(Kilde)).all()
-    kilder = sorted(kilder, key=lambda k: k.samlet_sortering, reverse=True)
+    # Kilder som trenger ettersyn sorteres øverst. Uten dette ville de havnet nederst:
+    # en kilde uten treff får automatisk_prioritet 0, altså lavest mulig sortering — nøyaktig
+    # der et varsel ikke blir sett.
+    kilder = sorted(
+        kilder,
+        key=lambda k: (k.tomme_kjoringer_paa_rad >= TOMME_KJORINGER_FOR_VARSEL, k.samlet_sortering),
+        reverse=True,
+    )
     return templates.TemplateResponse(
-        "_kildeliste.html", {"request": request, "kilder": kilder, "melding": melding}
+        "_kildeliste.html",
+        {"request": request, "kilder": kilder, "melding": melding,
+         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL},
     )
 
 
@@ -270,13 +285,21 @@ def forside(
         # de faktisk skal bruke, i stedet for en forvirrende feilmelding.
         return RedirectResponse(url="/innhosting", status_code=303)
     kilder = session.exec(select(Kilde)).all()
-    kilder = sorted(kilder, key=lambda k: k.samlet_sortering, reverse=True)
+    # Kilder som trenger ettersyn sorteres øverst. Uten dette ville de havnet nederst:
+    # en kilde uten treff får automatisk_prioritet 0, altså lavest mulig sortering — nøyaktig
+    # der et varsel ikke blir sett.
+    kilder = sorted(
+        kilder,
+        key=lambda k: (k.tomme_kjoringer_paa_rad >= TOMME_KJORINGER_FOR_VARSEL, k.samlet_sortering),
+        reverse=True,
+    )
     forslag = session.exec(
         select(KildeForslag).where(KildeForslag.status == "ny")
     ).all()
     return templates.TemplateResponse(
         "kilder.html",
-        {"request": request, "kilder": kilder, "forslag": forslag},
+        {"request": request, "kilder": kilder, "forslag": forslag,
+         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL},
     )
 
 
@@ -1258,6 +1281,14 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                     if ny_hash:
                         kilde.sist_sidetekst_hash = ny_hash
                         kilde.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
+                    # Teller kjøringer der kilden svarte fint, men ikke inneholdt et eneste
+                    # arrangement. Vi teller på det RÅ uttrekket, ikke på hvor mange som ble
+                    # lagret: en kilde kan finne ti arrangementer som alle er duplikater fra
+                    # andre kilder, eller som alle ligger utenfor perioden, og den fungerer da
+                    # helt som den skal. Bare en kilde som ikke inneholder noe i det hele tatt
+                    # er mistenkelig.
+                    if henting_ok:
+                        kilde.tomme_kjoringer_paa_rad = 0 if rå else kilde.tomme_kjoringer_paa_rad + 1
                     if henting_ok:
                         kilde.antall_vellykkede_hentinger += 1
                     else:

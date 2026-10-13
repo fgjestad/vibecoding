@@ -10,7 +10,18 @@
         {% if k.antall_feilede_hentinger > 0 %}
           <span class="tag tag-advarsel">{{ k.antall_feilede_hentinger }} feilet</span>
         {% endif %}
+        {% if k.tomme_kjoringer_paa_rad >= tomme_for_varsel %}
+          <span class="tag tag-advarsel">tom {{ k.tomme_kjoringer_paa_rad }} kjøringer på rad</span>
+        {% endif %}
         <div><a href="{{ k.url }}" target="_blank" rel="noopener">{{ k.url }}</a></div>
+        {% if k.tomme_kjoringer_paa_rad >= tomme_for_varsel %}
+          <div class="meta" style="color: var(--danger);">
+            Kilden svarer, men har ikke inneholdt et eneste arrangement på
+            {{ k.tomme_kjoringer_paa_rad }} innhøstinger. Den kan være bygget om eller flyttet.
+            Trykk «Helsesjekk» for å se om siden fortsatt lar seg lese — og vurder om den skal
+            være med videre.
+          </div>
+        {% endif %}
         {% if k.url | dedikert %}
           <div class="meta">
             Hentes automatisk av "Kjør innhøsting" (via sin egen, dedikerte hente-vei),
