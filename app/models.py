@@ -28,6 +28,29 @@ class Kilde(SQLModel, table=True):
         "Tomt uttrekk ≠ null arrangementer lagret: en kilde kan finne ti arrangementer som alle "
         "er duplikater fra andre kilder, og den fungerer da helt som den skal.",
     )
+    pauset_til: Optional[str] = Field(
+        default=None,
+        description="YYYY-MM-DD. Kilden hoppes over i innhøstingen til og med denne datoen, og "
+        "våkner så av seg selv. Forskjellen fra deaktivering er nettopp oppvåkningen: en "
+        "sesongkilde skal ikke måtte huskes på manuelt hver vår. Pausede kilder blir stående "
+        "synlig i listen, i motsetning til deaktiverte, fordi de er en beslutning du har tatt "
+        "midlertidig og skal se igjen.",
+    )
+    antall_tolkninger: int = Field(
+        default=0, description="Antall ganger siden faktisk er tolket med AI (første gang, eller fordi den hadde endret seg)"
+    )
+    antall_gjenbruk: int = Field(
+        default=0, description="Antall ganger det lagrede uttrekket ble gjenbrukt fordi siden var uendret"
+    )
+    sist_endret_at: Optional[datetime] = Field(
+        default=None, description="Når sideteksten sist faktisk endret seg"
+    )
+    endringer_uten_nye: int = Field(
+        default=0,
+        description="Antall påfølgende ganger siden har endret seg — og dermed kostet en ny "
+        "AI-tolkning — uten at det kom et eneste nytt arrangement ut av det. Dette er den beste "
+        "kandidaten for pausing: kilden koster penger ved hver kjøring og gir ingenting igjen.",
+    )
     sist_sidetekst_hash: Optional[str] = Field(
         default=None,
         description="Sjekksum av sideteksten som sist ble tolket med AI. Er den uendret ved "

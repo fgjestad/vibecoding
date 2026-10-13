@@ -10,6 +10,9 @@
         {% if k.antall_feilede_hentinger > 0 %}
           <span class="tag tag-advarsel">{{ k.antall_feilede_hentinger }} feilet</span>
         {% endif %}
+        {% if k.pauset_til %}
+          <span class="tag tag-advarsel">pauset til {{ k.pauset_til }}</span>
+        {% endif %}
         {% if k.tomme_kjoringer_paa_rad >= tomme_for_varsel %}
           <span class="tag tag-advarsel">tom {{ k.tomme_kjoringer_paa_rad }} kjøringer på rad</span>
         {% endif %}
@@ -34,6 +37,21 @@
             Hentet uten feil: {{ k.antall_vellykkede_hentinger }} ·
             Feilet: {{ k.antall_feilede_hentinger }}
           </div>
+          {% if k.antall_tolkninger or k.antall_gjenbruk %}
+            <div class="meta">
+              Siden har endret seg {{ k.antall_tolkninger }} av
+              {{ k.antall_tolkninger + k.antall_gjenbruk }} kjøringer (hver endring koster en ny
+              AI-tolkning; uendret er gratis){% if k.sist_endret_at %} ·
+              sist endret {{ k.sist_endret_at | oslo_tid }}{% endif %}
+            </div>
+          {% endif %}
+          {% if k.endringer_uten_nye >= 2 %}
+            <div class="meta" style="color: var(--danger);">
+              Siden har endret seg {{ k.endringer_uten_nye }} ganger på rad uten å gi et eneste
+              nytt arrangement. Kilden koster altså penger ved hver kjøring uten å gi noe igjen —
+              den er en god kandidat for pause.
+            </div>
+          {% endif %}
         {% endif %}
       </div>
       <div class="handlinger">
@@ -90,6 +108,32 @@
               <span class="spinner spinner-dark htmx-indicator"></span>
             </button>
           </form>
+        {% endif %}
+        {% if k.pauset_til %}
+          <form hx-post="/kilder/{{ k.id }}/gjenoppta" hx-target="#kilde-liste" hx-swap="outerHTML">
+            <button type="submit" class="suksess">Gjenoppta nå</button>
+          </form>
+        {% else %}
+          <details>
+            <summary>Pause</summary>
+            <form
+              class="skjema-kort"
+              hx-post="/kilder/{{ k.id }}/pause"
+              hx-target="#kilde-liste"
+              hx-swap="outerHTML"
+              style="margin-top: 0.5rem;"
+            >
+              <label>Hopp over kilden til og med
+                <input type="date" name="pauset_til" required />
+              </label>
+              <p class="meta" style="margin: 0.3rem 0 0;">
+                Kilden våkner av seg selv etter denne datoen, og blir stående synlig i listen
+                imens. Bruk dette for sesongkilder — i motsetning til «Deaktiver», som du må
+                huske å slå på igjen selv.
+              </p>
+              <button type="submit" class="primær" style="margin-top: 0.5rem;">Pause kilden</button>
+            </form>
+          </details>
         {% endif %}
         {% if k.aktiv %}
           <form hx-post="/kilder/{{ k.id }}/deaktiver" hx-target="#kilde-liste" hx-swap="outerHTML">

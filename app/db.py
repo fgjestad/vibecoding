@@ -60,6 +60,15 @@ def _migrer_kilde_tabell() -> None:
             conn.execute(text("ALTER TABLE kilde ADD COLUMN sist_sidetekst_hash TEXT"))
         if "sist_uttrekk_json" not in kolonner:
             conn.execute(text("ALTER TABLE kilde ADD COLUMN sist_uttrekk_json TEXT"))
+        for kol, type_ in (
+            ("pauset_til", "TEXT"),
+            ("antall_tolkninger", "INTEGER NOT NULL DEFAULT 0"),
+            ("antall_gjenbruk", "INTEGER NOT NULL DEFAULT 0"),
+            ("sist_endret_at", "TIMESTAMP"),
+            ("endringer_uten_nye", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if kol not in kolonner:
+                conn.execute(text(f"ALTER TABLE kilde ADD COLUMN {kol} {type_}"))
         if "tomme_kjoringer_paa_rad" not in kolonner:
             conn.execute(
                 text("ALTER TABLE kilde ADD COLUMN tomme_kjoringer_paa_rad INTEGER NOT NULL DEFAULT 0")

@@ -384,6 +384,50 @@ def deaktiver_kilde(
     return _kildeliste_respons(request, session)
 
 
+@app.post("/kilder/{kilde_id}/pause")
+def pause_kilde(
+    kilde_id: int,
+    request: Request,
+    pauset_til: str = Form(...),
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    """Setter kilden på pause til og med en dato. Forskjellen fra deaktivering er at den
+    våkner av seg selv — en sesongkilde skal ikke måtte huskes på manuelt hver vår.
+
+    Nullstiller samtidig varselet om tomme kjøringer: å pause er å si "jeg vet, la den være",
+    og da skal den ikke stå rødmerket gjennom hele lavsesongen."""
+    kilde = session.get(Kilde, kilde_id)
+    if kilde:
+        try:
+            date.fromisoformat(pauset_til)
+            kilde.pauset_til = pauset_til
+            kilde.tomme_kjoringer_paa_rad = 0
+            kilde.endringer_uten_nye = 0
+            session.add(kilde)
+            session.commit()
+        except ValueError:
+            return _kildeliste_respons(
+                request, session, f"«{pauset_til}» er ikke en gyldig dato (bruk formen 2027-03-01)."
+            )
+    return _kildeliste_respons(request, session)
+
+
+@app.post("/kilder/{kilde_id}/gjenoppta")
+def gjenoppta_kilde(
+    kilde_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    kilde = session.get(Kilde, kilde_id)
+    if kilde:
+        kilde.pauset_til = None
+        session.add(kilde)
+        session.commit()
+    return _kildeliste_respons(request, session)
+
+
 @app.post("/kilder/{kilde_id}/undersok")
 def undersok_kilde(
     kilde_id: int,
@@ -1269,6 +1313,9 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
     # diagnostiser_nes_kalender / _hent_fra_visitgreateroslo). De har i tillegg egne knapper
     # på Innhøsting-siden for å hente kun akkurat den kilden, uten å kjøre alt.
     aktive_kilder = session.exec(select(Kilde).where(Kilde.aktiv == True)).all()  # noqa: E712
+    # Pausede kilder hoppes over til og med pausedatoen, og våkner så av seg selv.
+    i_dag_str = date.today().isoformat()
+    aktive_kilder = [k for k in aktive_kilder if not (k.pauset_til and k.pauset_til >= i_dag_str)]
     aktive_kilder = sorted(aktive_kilder, key=lambda k: k.samlet_sortering, reverse=True)
 
     feil_kilder = []
@@ -1320,6 +1367,16 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                     # slik at neste kjøring kan gjenbruke det hvis siden er uendret. ny_hash er
                     # None for kilder som ikke går den veien — da er det ingenting å lagre.
                     if ny_hash:
+                        # Sammenlign FØR overskriving: endret side betyr at vi måtte betale for
+                        # en ny AI-tolkning, uendret betyr at uttrekket ble gjenbrukt gratis.
+                        if ny_hash == kilde.sist_sidetekst_hash:
+                            kilde.antall_gjenbruk += 1
+                        else:
+                            kilde.antall_tolkninger += 1
+                            kilde.sist_endret_at = kjoring_start
+                            # Endring som ikke ga et eneste nytt arrangement: kilden koster, men
+                            # gir ingenting igjen. Den beste kandidaten for pausing.
+                            kilde.endringer_uten_nye = 0 if antall else kilde.endringer_uten_nye + 1
                         kilde.sist_sidetekst_hash = ny_hash
                         kilde.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
                     # Teller kjøringer der kilden svarte fint, men ikke inneholdt et eneste
