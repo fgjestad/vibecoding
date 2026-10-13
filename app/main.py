@@ -260,7 +260,14 @@ def oppdater_auto_innhosting(
     return RedirectResponse(url="/innhosting", status_code=303)
 
 
-def _kildeliste_respons(request: Request, session: Session, melding: str | None = None):
+def _kildeliste_respons(
+    request: Request,
+    session: Session,
+    melding: str | None = None,
+    melding_kilde_id: int | None = None,
+):
+    """melding_kilde_id gjør at svaret legges inn i kortet til den kilden det gjelder, i stedet
+    for øverst på siden. Med en lang kildeliste er toppen langt unna knappen man trykket på."""
     kilder = session.exec(select(Kilde)).all()
     # Kilder som trenger ettersyn sorteres øverst. Uten dette ville de havnet nederst:
     # en kilde uten treff får automatisk_prioritet 0, altså lavest mulig sortering — nøyaktig
@@ -273,6 +280,7 @@ def _kildeliste_respons(request: Request, session: Session, melding: str | None 
     return templates.TemplateResponse(
         "_kildeliste.html",
         {"request": request, "kilder": kilder, "melding": melding,
+         "melding_kilde_id": melding_kilde_id,
          "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL,
          "endringer_for_varsel": ENDRINGER_UTEN_NYE_FOR_VARSEL},
     )
@@ -312,6 +320,7 @@ def forside(
     return templates.TemplateResponse(
         "kilder.html",
         {"request": request, "kilder": kilder, "forslag": forslag,
+         "melding": None, "melding_kilde_id": None,
          "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL,
          "endringer_for_varsel": ENDRINGER_UTEN_NYE_FOR_VARSEL},
     )
@@ -419,7 +428,8 @@ def pause_kilde(
             session.commit()
         except ValueError:
             return _kildeliste_respons(
-                request, session, f"«{pauset_til}» er ikke en gyldig dato (bruk formen 2027-03-01)."
+                request, session,
+                f"«{pauset_til}» er ikke en gyldig dato (bruk formen 2027-03-01).", kilde.id,
             )
     return _kildeliste_respons(request, session)
 
@@ -458,7 +468,7 @@ def undersok_kilde(
     except Exception as e:
         rapport = f"Kunne ikke undersøke kilden: {e}"
     melding = f"Undersøkelse av «{kilde.navn}»:\n\n{rapport}"
-    return _kildeliste_respons(request, session, melding)
+    return _kildeliste_respons(request, session, melding, kilde.id)
 
 
 @app.post("/kilder/{kilde_id}/helsesjekk")
@@ -479,7 +489,7 @@ def helsesjekk(
         rapport = helsesjekk_kilde(kilde.url)
     except Exception as e:
         rapport = f"Helsesjekken feilet: {type(e).__name__}: {e}"
-    return _kildeliste_respons(request, session, f"Helsesjekk av «{kilde.navn}»:\n\n{rapport}")
+    return _kildeliste_respons(request, session, f"Helsesjekk av «{kilde.navn}»:\n\n{rapport}", kilde.id)
 
 
 @app.post("/kilder/fjern-duplikater")
