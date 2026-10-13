@@ -97,6 +97,21 @@ class Arrangement(SQLModel, table=True):
     forhandsvalgt_bort: bool = Field(
         default=False, description="True hvis default-avhuket pga. kjent eksklusjonssignatur"
     )
+    sist_bekreftet_at: Optional[datetime] = Field(
+        default=None,
+        description="Når en kilde sist meldte om dette arrangementet under en FULL innhøsting. "
+        "Enkeltkilde-knappene stempler ikke, siden de bare dekker én kilde og alt annet da "
+        "ville sett forsvunnet ut. Er stempelet eldre enn siste fullstendige innhøsting, var "
+        "arrangementet ikke lenger å finne hos kildene — se ikke_lenger_pa_kilden.",
+    )
+    ikke_lenger_pa_kilden: bool = Field(
+        default=False,
+        description="True hvis ingen kilde meldte om arrangementet i siste fullstendige "
+        "innhøsting. Typisk et avlyst eller flyttet arrangement — men også en kilde som feilet "
+        "eller ble slått av, så dette er et varsel om å sjekke, ikke en konklusjon. "
+        "Arrangementet slettes aldri automatisk: en kilde som svarer fint men returnerer tomt "
+        "ville da stille tømt ekte arrangementer ut av listen.",
+    )
     duplikat_gruppe: Optional[str] = Field(
         default=None,
         index=True,

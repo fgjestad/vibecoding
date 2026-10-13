@@ -34,6 +34,12 @@ def _migrer_arrangement_tabell() -> None:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN er_sammenslatt BOOLEAN NOT NULL DEFAULT 0"))
         if "flere_datoer" not in kolonner:
             conn.execute(text("ALTER TABLE arrangement ADD COLUMN flere_datoer TEXT"))
+        if "sist_bekreftet_at" not in kolonner:
+            conn.execute(text("ALTER TABLE arrangement ADD COLUMN sist_bekreftet_at TIMESTAMP"))
+        if "ikke_lenger_pa_kilden" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE arrangement ADD COLUMN ikke_lenger_pa_kilden BOOLEAN NOT NULL DEFAULT 0")
+            )
 
 
 def _migrer_kilde_tabell() -> None:

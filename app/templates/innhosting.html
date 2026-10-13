@@ -494,6 +494,9 @@
               {{ a | datoperiode }}{% if a.klokkeslett %} kl. {{ a.klokkeslett }}{% endif %} · {{ a.sted }}
               {% if a.arrangor %} · {{ a.arrangor }}{% endif %}
             </div>
+            {% if a.ikke_lenger_pa_kilden %}
+              <span class="tag tag-advarsel">ikke lenger på kilden</span>
+            {% endif %}
             {% if a.er_sammenslatt %}
               <span class="tag" style="background: #e4e0f5; color: #4b3a8a;">sammenslått av Claude fra flere kilder</span>
             {% elif a.tekst_bekreftet %}
@@ -502,6 +505,14 @@
               <span class="tag tag-advarsel">ikke verifisert ordrett</span>
             {% endif %}
             <p style="margin: 0.3rem 0; white-space: pre-line;">{{ a.original_tekst }}</p>
+            {% if a.ikke_lenger_pa_kilden %}
+              <div class="meta" style="color: var(--danger);">
+                Ingen kilde meldte om dette arrangementet i siste innhøsting. Det kan være
+                avlyst, flyttet eller endret — men det kan også bety at kilden feilet eller ble
+                slått av. Sjekk før du tar det med i artikkelen. Arrangementet slettes aldri
+                automatisk.
+              </div>
+            {% endif %}
             <div class="meta">
               Kilde: {{ a.kilde_type }}
               {% if a.kilde_url %} — <a href="{{ a.kilde_url }}" target="_blank" rel="noopener">{{ a.kilde_url | domene }}</a>{% endif %}

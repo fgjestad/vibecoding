@@ -669,6 +669,16 @@ def _hent_ikke_duplikat_par(session: Session) -> set[frozenset[str]]:
     }
 
 
+def _stemple_bekreftet(session: Session, arrangement_id: str, tidspunkt: datetime) -> None:
+    """Markerer at en kilde fortsatt melder om dette arrangementet i denne innhøstingen."""
+    rad = session.exec(
+        select(Arrangement).where(Arrangement.arrangement_id == arrangement_id)
+    ).first()
+    if rad:
+        rad.sist_bekreftet_at = tidspunkt
+        session.add(rad)
+
+
 def _lagre_arrangement(
     session: Session,
     data: dict,
@@ -679,6 +689,7 @@ def _lagre_arrangement(
     berorte_grupper: set[str],
     ikke_duplikat_par: set[frozenset[str]],
     sjekk_duplikater: bool = True,
+    bekreftet_at: datetime | None = None,
 ) -> bool:
     """Normaliserer og lagrer ett arrangement, med id-basert dedup. Returnerer True hvis lagret
     (eller slått sammen inn i et eksisterende gjentakende arrangement).
@@ -718,6 +729,10 @@ def _lagre_arrangement(
 
     arrangement_id = beregn_arrangement_id(tittel, dato_str, sted)
     if arrangement_id in sett_ider:
+        # Allerede kjent — men kilden melder det fortsatt, så raden skal stemples som bekreftet.
+        # Uten dette ville alt som ikke er nytt sett ut som forsvunnet fra kilden.
+        if bekreftet_at:
+            _stemple_bekreftet(session, arrangement_id, bekreftet_at)
         return False
     sett_ider.add(arrangement_id)
 
@@ -741,6 +756,8 @@ def _lagre_arrangement(
         sorterte_datoer = sorted(alle_datoer)
 
         hoved = gjentakende[0]
+        if bekreftet_at:
+            hoved.sist_bekreftet_at = bekreftet_at
         hoved.dato = sorterte_datoer[0]
         hoved.til_dato = sorterte_datoer[-1]
         hoved.flere_datoer = json.dumps(sorterte_datoer)
@@ -803,6 +820,7 @@ def _lagre_arrangement(
         valgt=not forhandsvalgt_bort and not duplikat_gruppe,
         forhandsvalgt_bort=forhandsvalgt_bort,
         duplikat_gruppe=duplikat_gruppe,
+        sist_bekreftet_at=bekreftet_at,
     )
     session.add(nytt)
     samme_dato.append(nytt)
@@ -1233,6 +1251,7 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
     to kjøreveiene aldri kan drifte fra hverandre. Returnerer en liste med feilmeldinger for
     kilder som feilet (tom liste = alt gikk bra)."""
     _slett_gamle_arrangementer(session)
+    kjoring_start = datetime.utcnow()
 
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
@@ -1291,7 +1310,7 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                         for a in _filtrer_til_periode(rå, forste_dag, siste_dag)
                         if _lagre_arrangement(
                             session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
-                            berorte_grupper, ikke_duplikat_par,
+                            berorte_grupper, ikke_duplikat_par, bekreftet_at=kjoring_start,
                         )
                     )
                     kilde.automatisk_prioritet = float(antall)
@@ -1347,6 +1366,7 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                 _lagre_arrangement(
                     session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
                     berorte_grupper, ikke_duplikat_par, sjekk_duplikater=False,
+                    bekreftet_at=kjoring_start,
                 )
             session.commit()
             if fotball_feilet:
@@ -1354,6 +1374,18 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
         except Exception as e:
             session.rollback()
             feil_kilder.append(f"fotball.no ({e})")
+
+    # Marker arrangementer ingen kilde meldte om denne gangen. Rader uten stempel i det hele
+    # tatt (lagret før denne funksjonen fantes) står urørt — ellers ville alt blitt flagget
+    # første gang etter en oppdatering.
+    for a in session.exec(select(Arrangement)).all():
+        if a.sist_bekreftet_at is None:
+            continue
+        borte = a.sist_bekreftet_at < kjoring_start
+        if a.ikke_lenger_pa_kilden != borte:
+            a.ikke_lenger_pa_kilden = borte
+            session.add(a)
+    session.commit()
 
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return feil_kilder
