@@ -1413,6 +1413,78 @@ linjen helt.
     return arrangementer, foreslatt_url
 
 
+def helsesjekk_kilde(kilde_url: str) -> str:
+    """Sjekker om en kilde fortsatt svarer og lar seg hente, UTEN å bruke AI — altså uten å
+    koste et eneste token. Svarer på "lever denne kilden?", som er et annet spørsmål enn det
+    diagnostiser_kilde besvarer (den bruker Claude og web_fetch til å analysere hvilken
+    teknisk løsning nettstedet bruker, og koster deretter).
+
+    Rapporterer også om kilden ville havnet i web_fetch-reserveløsningen, som er den klart
+    dyreste hente-veien: der henter Claude siden selv, og rå HTML — inntil tre hentinger —
+    havner i konteksten. Noen få slike kilder kan dominere hele API-regningen, så det er verdt
+    å vite hvilke de er."""
+    if er_dedikert_kilde(kilde_url):
+        return (
+            "Dedikert integrasjon. Denne kilden hentes direkte fra sitt eget API/datagrunnlag "
+            "uten AI-tolkning, og koster derfor ingenting i tokens. Ingen helsesjekk nødvendig."
+        )
+
+    try:
+        respons = httpx.get(
+            kilde_url, timeout=20.0, follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; RaumnesArrangementer/1.0)"},
+        )
+    except httpx.HTTPError as e:
+        return (
+            f"FEILER: klarte ikke å koble til siden ({type(e).__name__}: {e}).\n"
+            "Kilden gir ingenting ved innhøsting. Sjekk om URL-en fortsatt er riktig."
+        )
+
+    linjer = [f"Svarte med HTTP {respons.status_code}."]
+    endelig = str(respons.url)
+    if endelig.rstrip("/") != kilde_url.rstrip("/"):
+        linjer.append(f"Omdirigert til: {endelig}")
+
+    if respons.status_code >= 400:
+        linjer.append("FEILER: siden svarer med feilkode. Kilden gir ingenting ved innhøsting.")
+        return "\n".join(linjer)
+
+    innholdstype = respons.headers.get("content-type", "")
+    if "html" not in innholdstype and "text" not in innholdstype:
+        linjer.append(
+            f"FEILER: svaret er ikke tekst/HTML (content-type: {innholdstype or 'ukjent'}). "
+            "Kilden kan ikke leses av innhøstingen."
+        )
+        return "\n".join(linjer)
+
+    if _finn_prokom_widget(respons.text):
+        linjer.append(
+            "FRISK: fant en Prokom/ØRU-kalenderwidget. Kilden hentes strukturert direkte fra "
+            "widgetens eget API, uten AI — den koster ingenting i tokens."
+        )
+        return "\n".join(linjer)
+
+    sidetekst = _html_til_tekst(respons.text)
+    linjer.append(f"Leselig tekst på siden: {len(sidetekst)} tegn.")
+
+    if len(sidetekst) < MINSTE_SIDETEKST_LENGDE:
+        linjer.append(
+            f"DYR: under grensen på {MINSTE_SIDETEKST_LENGDE} tegn — innholdet lastes trolig "
+            "inn med JavaScript etter at siden er hentet. Kilden faller derfor ned i "
+            "web_fetch-reserveløsningen, der Claude henter siden selv og rå HTML havner i "
+            "konteksten. Dette er den dyreste hente-veien, og den koster fullt ved HVER "
+            "innhøsting. Vurder å bygge en dedikert henting for denne, eller å deaktivere den."
+        )
+        return "\n".join(linjer)
+
+    anslag = len(sidetekst) // 4
+    linjer.append(
+        f"FRISK: siden hentes programmatisk, og teksten sendes til Claude for uttrekk "
+        f"(anslagsvis {anslag} tokens per innhøsting). Dette er den normale, rimelige veien."
+    )
+    return "\n".join(linjer)
+
+
 def diagnostiser_kilde(kilde_url: str) -> str:
     """Bruker Claude med web_fetch-verktøyet til å undersøke en kilde som ikke fungerer godt
     nok via de vanlige hente-veiene, og rapporterer tilbake hva den fant — f.eks. om siden

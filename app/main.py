@@ -22,6 +22,7 @@ from app.harvest import (
     beregn_periode,
     beregn_signatur,
     diagnostiser_kilde,
+    helsesjekk_kilde,
     diagnostiser_nes_kalender,
     er_dedikert_kilde,
     er_tittel_duplikat,
@@ -377,6 +378,27 @@ def undersok_kilde(
         rapport = f"Kunne ikke undersøke kilden: {e}"
     melding = f"Undersøkelse av «{kilde.navn}»:\n\n{rapport}"
     return _kildeliste_respons(request, session, melding)
+
+
+@app.post("/kilder/{kilde_id}/helsesjekk")
+def helsesjekk(
+    kilde_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: str = Depends(sjekk_admin),
+):
+    """Sjekker om kilden fortsatt svarer og lar seg hente, uten å bruke AI — altså gratis.
+    Svarer på "lever denne kilden, og hva koster den?", i motsetning til "Undersøk kilde"
+    som bruker Claude til å analysere nettstedets tekniske løsning og koster tokens.
+    Se harvest.helsesjekk_kilde."""
+    kilde = session.get(Kilde, kilde_id)
+    if not kilde:
+        return _kildeliste_respons(request, session)
+    try:
+        rapport = helsesjekk_kilde(kilde.url)
+    except Exception as e:
+        rapport = f"Helsesjekken feilet: {type(e).__name__}: {e}"
+    return _kildeliste_respons(request, session, f"Helsesjekk av «{kilde.navn}»:\n\n{rapport}")
 
 
 @app.post("/kilder/fjern-duplikater")

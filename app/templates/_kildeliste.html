@@ -58,12 +58,23 @@
         </details>
         {% if not (k.url | dedikert) %}
           <form
+            hx-post="/kilder/{{ k.id }}/helsesjekk"
+            hx-target="#kilde-liste"
+            hx-swap="outerHTML"
+            hx-request='{"timeout": 40000}'
+          >
+            <button type="submit" title="Sjekker gratis om kilden svarer, og hvor dyr den er — uten å bruke AI">
+              Helsesjekk
+              <span class="spinner spinner-dark htmx-indicator"></span>
+            </button>
+          </form>
+          <form
             hx-post="/kilder/{{ k.id }}/undersok"
             hx-target="#kilde-liste"
             hx-swap="outerHTML"
             hx-request='{"timeout": 110000}'
           >
-            <button type="submit">
+            <button type="submit" title="Lar Claude analysere nettstedets tekniske løsning. Bruker AI og koster tokens.">
               Undersøk kilde
               <span class="spinner spinner-dark htmx-indicator"></span>
             </button>
