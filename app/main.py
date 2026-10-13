@@ -519,17 +519,15 @@ def avvis_forslag(
     return _forslagliste_respons(request, session)
 
 
-@app.post("/kilder/hent-fotballkamper")
-def hent_fotballkamper_rute(
-    request: Request,
-    session: Session = Depends(get_session),
-    rolle: str = Depends(sjekk_passord),
-):
+def _hent_fotballkamper_til_utkast(request: Request, session: Session, rolle: str, kun_senior: bool):
+    """Felles jobb bak begge fotball-knappene. kun_senior utelater barne- og ungdomskamper;
+    alt voksenfotball beholdes (A-lag, 2.-lag, kvinner, old boys, veteran). Se
+    harvest.er_ungdomskamp."""
     innstilling = _hent_innstilling(session)
     forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
 
     try:
-        rå, antall_feilet = hent_fotballkamper(forste_dag, siste_dag)
+        rå, antall_feilet = hent_fotballkamper(forste_dag, siste_dag, kun_senior=kun_senior)
     except Exception as e:
         return templates.TemplateResponse(
             "innhosting.html",
@@ -563,6 +561,26 @@ def hent_fotballkamper_rute(
             ),
         )
     return RedirectResponse(url="/innhosting", status_code=303)
+
+
+@app.post("/kilder/hent-fotballkamper")
+def hent_fotballkamper_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    rolle: str = Depends(sjekk_passord),
+):
+    """Alle hjemmekamper, inkludert barne- og ungdomsfotball."""
+    return _hent_fotballkamper_til_utkast(request, session, rolle, kun_senior=False)
+
+
+@app.post("/kilder/hent-fotballkamper-senior")
+def hent_fotballkamper_senior_rute(
+    request: Request,
+    session: Session = Depends(get_session),
+    rolle: str = Depends(sjekk_passord),
+):
+    """Kun seniorkamper — barne- og ungdomsfotball utelates."""
+    return _hent_fotballkamper_til_utkast(request, session, rolle, kun_senior=True)
 
 
 @app.post("/kilder/hent-nes-kalender")

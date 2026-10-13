@@ -167,17 +167,32 @@
       Fenstad, Haga, Hvam og Skogbygda) fra fotball.no, for perioden over. Bare hjemmekamper
       tas med. Legges til i utkastet under, i tillegg til det som hentes automatisk.
     </p>
-    <form class="skjema-kort" method="post" action="/kilder/hent-fotballkamper" id="fotball-skjema">
-      <button type="submit" class="primær" id="fotball-knapp">
-        Hent fotballkamper
-      </button>
-    </form>
+    <p class="undertittel">
+      <strong>Seniorkamper</strong> utelater barne- og ungdomsfotball, men beholder alt
+      voksenfotball — A-lag, 2.-lag, kvinnelag, old boys og veteran. Turneringsnavnet står i
+      hvert arrangement, så du kan se hva filteret slapp gjennom.
+    </p>
+    <div class="skjema-kort" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <form method="post" action="/kilder/hent-fotballkamper-senior" id="fotball-senior-skjema" style="margin: 0;">
+        <button type="submit" class="primær" id="fotball-senior-knapp">
+          Fotballkamper senior
+        </button>
+      </form>
+      <form method="post" action="/kilder/hent-fotballkamper" id="fotball-skjema" style="margin: 0;">
+        <button type="submit" id="fotball-knapp">
+          Alle fotballkamper
+        </button>
+      </form>
+    </div>
     <script>
-      document.getElementById("fotball-skjema").addEventListener("submit", function () {
-        var knapp = document.getElementById("fotball-knapp");
-        knapp.disabled = true;
-        knapp.innerHTML = '<span class="spinner"></span> Henter kamper … (kan ta et halvt minutt)';
-      });
+      [["fotball-senior-skjema", "fotball-senior-knapp"], ["fotball-skjema", "fotball-knapp"]]
+        .forEach(function (par) {
+          document.getElementById(par[0]).addEventListener("submit", function () {
+            var knapp = document.getElementById(par[1]);
+            knapp.disabled = true;
+            knapp.innerHTML = '<span class="spinner"></span> Henter kamper … (kan ta et halvt minutt)';
+          });
+        });
     </script>
 
     <h2>Last opp skjermdump eller PDF</h2>

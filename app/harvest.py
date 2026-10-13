@@ -619,6 +619,39 @@ FOTBALL_KLUBBER = {
 }
 _FOTBALL_KLUBB_SUFFIKSER = (" idrettslag", " fotballklubb", " idrettsforening", " sportsklubb")
 
+# Markører for barne- og ungdomsfotball i turneringsnavnet på fotball.no, f.eks. "G16 Avdeling
+# 02", "Jenter 14", "Smågutt 1. divisjon".
+#
+# Filteret er bygget som en EKSKLUDERING av gjenkjent ungdom, ikke som et krav om gjenkjent
+# senior. Det er et bevisst valg om hvilken vei feilen skal gå: en ungdomsturnering med et navn
+# vi ikke kjenner slipper gjennom og blir synlig i utkastet, der den er lett å luke bort. Hadde
+# vi i stedet krevd gjenkjente seniormarkører, ville en ukjent seniorturnering forsvunnet
+# stille — og det er den feilen ingen oppdager.
+#
+# Alt voksenfotball beholdes: A-lag, 2.-lag/rekrutt, kvinner, old boys og veteran.
+_FOTBALL_UNGDOMSMONSTRE = (
+    r"\b[GJ]\s?\d{1,2}\b",          # G16, J 15
+    r"\bU\s?\d{1,2}\b",             # U19
+    r"\bgutter?\b",                 # Gutter 14
+    r"\bjenter?\b",                 # Jenter 16
+    r"\bsm[åa]gutt",                # Smågutt
+    r"\bsm[åa]jente",
+    r"\blillegutt",
+    r"\blillejente",
+    r"\bkn[øo]tt",
+    r"\bmini\b",
+    r"\bbarn",                      # Barnefotball
+    r"\bungdom",
+    r"\bjunior",
+)
+_FOTBALL_UNGDOM_RE = re.compile("|".join(_FOTBALL_UNGDOMSMONSTRE), re.IGNORECASE)
+
+
+def er_ungdomskamp(turnering: str) -> bool:
+    """True hvis turneringsnavnet tyder på barne- eller ungdomsfotball. Se
+    _FOTBALL_UNGDOMSMONSTRE for hvorfor filteret ekskluderer framfor å kreve."""
+    return bool(_FOTBALL_UNGDOM_RE.search(turnering or ""))
+
 
 def _fotball_kortnavn(offisielt_navn: str) -> str:
     """«Raumnes & Årnes Idrettslag» -> «Raumnes & Årnes» — kamptabellens Hjemmelag-kolonne
@@ -688,8 +721,16 @@ class _FotballKampTabellParser(HTMLParser):
             self._rad[-1]["tekst"] += data
 
 
-def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: date) -> list[dict]:
-    """Henter alle fotballkamper for én klubb på én dato, og returnerer kun hjemmekampene."""
+def _hent_fotballkamper_for_klubb_og_dag(
+    klubb_navn: str, klubb_id: int, dag: date, kun_senior: bool = False
+) -> list[dict]:
+    """Henter alle fotballkamper for én klubb på én dato, og returnerer kun hjemmekampene.
+
+    kun_senior filtrerer bort barne- og ungdomskamper i kode, ikke i forespørselen. Merk at
+    include*-parameterne under ser ut til å bli ignorert av fotball.no: alle tre står til
+    "false", også includeAdult, og likevel kommer det kamper tilbake i alle aldersklasser. De
+    er beholdt urørt fordi de demonstrerbart gir dataene vi vil ha, og vi ikke kan teste
+    alternative parameternavn herfra — men de kan altså ikke brukes til å filtrere."""
     respons = httpx.get(
         FOTBALL_DAGENS_KAMPER_URL,
         params={
@@ -725,6 +766,8 @@ def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: da
             continue
         if resultat == "Utsatt":
             continue
+        if kun_senior and er_ungdomskamp(turnering):
+            continue
         if not _fotball_lagnavn_normalisert(hjemmelag).startswith(kort_navn_normalisert):
             continue  # bortekamp for denne klubben — ikke noe man kan gå og se lokalt
 
@@ -759,9 +802,14 @@ def _hent_fotballkamper_for_klubb_og_dag(klubb_navn: str, klubb_id: int, dag: da
     return arrangementer
 
 
-def hent_fotballkamper(forste_dag: date, siste_dag: date) -> tuple[list[dict], int]:
+def hent_fotballkamper(
+    forste_dag: date, siste_dag: date, kun_senior: bool = False
+) -> tuple[list[dict], int]:
     """Henter hjemmekamper for alle klubbene i FOTBALL_KLUBBER i hele perioden, ett oppslag
-    per klubb per dag (fotball.no støtter kun ett datofilter om gangen). Returnerer
+    per klubb per dag (fotball.no støtter kun ett datofilter om gangen).
+
+    kun_senior=True utelater barne- og ungdomskamper (se er_ungdomskamp). Alt voksenfotball
+    beholdes: A-lag, 2.-lag, kvinner, old boys og veteran. Returnerer
     (arrangementer, antall_feilede_oppslag) — enkeltoppslag som feiler hopper vi over i
     stedet for å la hele innhentingen falle, siden det uansett blir mange oppslag."""
     dager = []
@@ -776,7 +824,7 @@ def hent_fotballkamper(forste_dag: date, siste_dag: date) -> tuple[list[dict], i
     antall_feilet = 0
     with ThreadPoolExecutor(max_workers=5) as executor:
         fremtider = [
-            executor.submit(_hent_fotballkamper_for_klubb_og_dag, navn, id_, dag)
+            executor.submit(_hent_fotballkamper_for_klubb_og_dag, navn, id_, dag, kun_senior)
             for navn, id_, dag in oppgaver
         ]
         for fremtid in as_completed(fremtider):
