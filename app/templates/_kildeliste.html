@@ -45,11 +45,12 @@
               sist endret {{ k.sist_endret_at | oslo_tid }}{% endif %}
             </div>
           {% endif %}
-          {% if k.endringer_uten_nye >= 2 %}
+          {% if k.endringer_uten_nye >= endringer_for_varsel %}
             <div class="meta" style="color: var(--danger);">
-              Siden har endret seg {{ k.endringer_uten_nye }} ganger på rad uten å gi et eneste
-              nytt arrangement. Kilden koster altså penger ved hver kjøring uten å gi noe igjen —
-              den er en god kandidat for pause.
+              Siden har endret seg {{ k.endringer_uten_nye }} ganger på rad uten at innholdet
+              ble et annet — samme arrangementer kom ut hver gang. Endringene er altså
+              kosmetiske, og hver av dem koster en AI-tolkning. Kilden er en god kandidat for
+              pause.
             </div>
           {% endif %}
         {% endif %}

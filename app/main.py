@@ -125,6 +125,11 @@ TOMME_KJORINGER_FOR_VARSEL = 3
 # totaltall: det interessante er om kilden endrer seg ofte NÅ, ikke hva den gjorde i vår.
 ENDRINGSHISTORIKK_LENGDE = 10
 
+# Antall påfølgende ganger en side kan endre seg UTEN at det kommer noe nytt ut av uttrekket,
+# før kilden flagges som pausekandidat. Tre, av samme grunn som TOMME_KJORINGER_FOR_VARSEL:
+# to observasjoner er for tynt til å anbefale noe.
+ENDRINGER_UTEN_NYE_FOR_VARSEL = 3
+
 KALENDER_FOTNOTE_URL = "https://www.nes.kommune.no/aktivitetskalender/"
 KALENDER_FOTNOTE = (
     "Denne kalenderen er laget ved hjelp av kunstig intelligens og er gått gjennom av en "
@@ -268,7 +273,8 @@ def _kildeliste_respons(request: Request, session: Session, melding: str | None 
     return templates.TemplateResponse(
         "_kildeliste.html",
         {"request": request, "kilder": kilder, "melding": melding,
-         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL},
+         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL,
+         "endringer_for_varsel": ENDRINGER_UTEN_NYE_FOR_VARSEL},
     )
 
 
@@ -306,7 +312,8 @@ def forside(
     return templates.TemplateResponse(
         "kilder.html",
         {"request": request, "kilder": kilder, "forslag": forslag,
-         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL},
+         "tomme_for_varsel": TOMME_KJORINGER_FOR_VARSEL,
+         "endringer_for_varsel": ENDRINGER_UTEN_NYE_FOR_VARSEL},
     )
 
 
@@ -1168,6 +1175,26 @@ def _filtrer_til_periode(arrangementer: list[dict], forste_dag: date, siste_dag:
     return [a for a in arrangementer if fra <= str(a.get("dato") or "") <= til]
 
 
+def _uttrekk_fingeravtrykk(arrangementer: list[dict]) -> str:
+    """Stabil representasjon av HVILKE arrangementer et uttrekk inneholder, brukt til å avgjøre
+    om en ny tolkning faktisk ga noe annet enn forrige.
+
+    Bare de identifiserende feltene er med. original_tekst utelates med vilje: samme
+    arrangement kan beskrives med litt ulik ordlyd fra tolkning til tolkning uten at innholdet
+    er et annet, og det skal ikke telle som en endring. Listen sorteres, så rekkefølgen i
+    svaret heller ikke slår ut."""
+    return json.dumps(
+        sorted(
+            json.dumps(
+                {felt: a.get(felt) for felt in ("tittel", "dato", "klokkeslett", "sted", "arrangor")},
+                ensure_ascii=False, sort_keys=True,
+            )
+            for a in arrangementer
+        ),
+        ensure_ascii=False,
+    )
+
+
 def _uttrekk_for_kilde(kilde: Kilde) -> list[dict] | None:
     """Leser det lagrede uttrekket for en URL-kilde. None hvis kilden aldri har blitt tolket,
     eller hvis den lagrede JSON-en er ødelagt — begge deler betyr at den må tolkes på nytt."""
@@ -1382,9 +1409,20 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                         else:
                             kilde.antall_tolkninger += 1
                             kilde.sist_endret_at = kjoring_start
-                            # Endring som ikke ga et eneste nytt arrangement: kilden koster, men
-                            # gir ingenting igjen. Den beste kandidaten for pausing.
-                            kilde.endringer_uten_nye = 0 if antall else kilde.endringer_uten_nye + 1
+                            # Ga den nye tolkningen faktisk et annet innhold enn den forrige?
+                            # Vi sammenligner uttrekkene, IKKE hvor mange arrangementer som ble
+                            # lagret som nye: et arrangement lagres kun én gang, så en kilde som
+                            # trofast melder om de samme konsertene ville ellers scoret null
+                            # hver gang og sett ut som den ikke bidro. Det er kosmetiske
+                            # sideendringer — en nyhetssak, en sponsor — som er sløsing, ikke en
+                            # rolig måned.
+                            tidligere = _uttrekk_for_kilde(kilde)
+                            if tidligere is None:
+                                kilde.endringer_uten_nye = 0
+                            elif _uttrekk_fingeravtrykk(rå) == _uttrekk_fingeravtrykk(tidligere):
+                                kilde.endringer_uten_nye += 1
+                            else:
+                                kilde.endringer_uten_nye = 0
                         kilde.sist_sidetekst_hash = ny_hash
                         kilde.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
                     # Teller kjøringer der kilden svarte fint, men ikke inneholdt et eneste

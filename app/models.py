@@ -56,8 +56,12 @@ class Kilde(SQLModel, table=True):
     endringer_uten_nye: int = Field(
         default=0,
         description="Antall påfølgende ganger siden har endret seg — og dermed kostet en ny "
-        "AI-tolkning — uten at det kom et eneste nytt arrangement ut av det. Dette er den beste "
-        "kandidaten for pausing: kilden koster penger ved hver kjøring og gir ingenting igjen.",
+        "AI-tolkning — uten at uttrekket ble et annet. Da var sideendringen kosmetisk (en "
+        "nyhetssak, en sponsor, et tall som telles opp), og vi betalte for ingenting. "
+        "Sammenligningen går på selve uttrekket, IKKE på hvor mange arrangementer som ble "
+        "lagret som nye: et arrangement lagres kun én gang, så en kilde som trofast melder om "
+        "de samme konsertene ville ellers scoret null hver gang og urettmessig sett ut som en "
+        "pausekandidat mellom hvert nye arrangement.",
     )
     sist_sidetekst_hash: Optional[str] = Field(
         default=None,
