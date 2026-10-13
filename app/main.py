@@ -121,6 +121,10 @@ MAKS_SAMTIDIGE_KILDER = 5
 # kilden selv — sesongkilder (skiklubbens program om sommeren) ville blitt slått av hver vår.
 TOMME_KJORINGER_FOR_VARSEL = 3
 
+# Hvor mange kjøringer tilbake endringshistorikken per kilde dekker. Et rullende vindu, ikke et
+# totaltall: det interessante er om kilden endrer seg ofte NÅ, ikke hva den gjorde i vår.
+ENDRINGSHISTORIKK_LENGDE = 10
+
 KALENDER_FOTNOTE_URL = "https://www.nes.kommune.no/aktivitetskalender/"
 KALENDER_FOTNOTE = (
     "Denne kalenderen er laget ved hjelp av kunstig intelligens og er gått gjennom av en "
@@ -1369,7 +1373,11 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                     if ny_hash:
                         # Sammenlign FØR overskriving: endret side betyr at vi måtte betale for
                         # en ny AI-tolkning, uendret betyr at uttrekket ble gjenbrukt gratis.
-                        if ny_hash == kilde.sist_sidetekst_hash:
+                        endret = ny_hash != kilde.sist_sidetekst_hash
+                        kilde.endringshistorikk = (
+                            (kilde.endringshistorikk or "") + ("E" if endret else "G")
+                        )[-ENDRINGSHISTORIKK_LENGDE:]
+                        if not endret:
                             kilde.antall_gjenbruk += 1
                         else:
                             kilde.antall_tolkninger += 1

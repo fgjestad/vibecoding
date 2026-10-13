@@ -66,6 +66,7 @@ def _migrer_kilde_tabell() -> None:
             ("antall_gjenbruk", "INTEGER NOT NULL DEFAULT 0"),
             ("sist_endret_at", "TIMESTAMP"),
             ("endringer_uten_nye", "INTEGER NOT NULL DEFAULT 0"),
+            ("endringshistorikk", "TEXT"),
         ):
             if kol not in kolonner:
                 conn.execute(text(f"ALTER TABLE kilde ADD COLUMN {kol} {type_}"))

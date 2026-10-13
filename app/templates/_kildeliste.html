@@ -37,11 +37,11 @@
             Hentet uten feil: {{ k.antall_vellykkede_hentinger }} ·
             Feilet: {{ k.antall_feilede_hentinger }}
           </div>
-          {% if k.antall_tolkninger or k.antall_gjenbruk %}
+          {% if k.kjoringer_i_historikk %}
             <div class="meta">
-              Siden har endret seg {{ k.antall_tolkninger }} av
-              {{ k.antall_tolkninger + k.antall_gjenbruk }} kjøringer (hver endring koster en ny
-              AI-tolkning; uendret er gratis){% if k.sist_endret_at %} ·
+              Endret {{ k.endringer_i_historikk }} av de siste
+              {{ k.kjoringer_i_historikk }} kjøringene (hver endring koster en ny AI-tolkning;
+              uendret er gratis){% if k.sist_endret_at %} ·
               sist endret {{ k.sist_endret_at | oslo_tid }}{% endif %}
             </div>
           {% endif %}

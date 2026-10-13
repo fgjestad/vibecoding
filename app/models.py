@@ -45,6 +45,14 @@ class Kilde(SQLModel, table=True):
     sist_endret_at: Optional[datetime] = Field(
         default=None, description="Når sideteksten sist faktisk endret seg"
     )
+    endringshistorikk: Optional[str] = Field(
+        default=None,
+        description="Utfallet av de siste kjøringene for denne kilden, nyeste sist: 'E' = siden "
+        "hadde endret seg og måtte tolkes på nytt (koster), 'G' = uendret, uttrekket ble "
+        "gjenbrukt (gratis). Kuttet til de siste ENDRINGSHISTORIKK_LENGDE kjøringene, fordi et "
+        "rullende vindu sier noe om hvordan kilden oppfører seg nå — et totaltall over måneder "
+        "sier bare noe om fortiden.",
+    )
     endringer_uten_nye: int = Field(
         default=0,
         description="Antall påfølgende ganger siden har endret seg — og dermed kostet en ny "
@@ -70,6 +78,17 @@ class Kilde(SQLModel, table=True):
     @property
     def samlet_sortering(self) -> float:
         return self.manuell_prioritet + self.automatisk_prioritet
+
+    @property
+    def endringer_i_historikk(self) -> int:
+        """Antall av de siste kjøringene der siden hadde endret seg og måtte tolkes på nytt."""
+        return (self.endringshistorikk or "").count("E")
+
+    @property
+    def kjoringer_i_historikk(self) -> int:
+        """Hvor mange kjøringer historikken faktisk dekker — kan være færre enn vindusstørrelsen
+        rett etter at kilden ble lagt til."""
+        return len(self.endringshistorikk or "")
 
 
 class KildeForslag(SQLModel, table=True):
