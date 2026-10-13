@@ -19,6 +19,20 @@ class Kilde(SQLModel, table=True):
     antall_feilede_hentinger: int = Field(
         default=0, description="Antall innhøstingskjøringer denne kilden har feilet under"
     )
+    sist_sidetekst_hash: Optional[str] = Field(
+        default=None,
+        description="Sjekksum av sideteksten som sist ble tolket med AI. Er den uendret ved "
+        "neste innhøsting, gjenbrukes sist_uttrekk_json i stedet for å tolke identisk tekst på "
+        "nytt. Null for kilder som ikke går den veien (dedikerte integrasjoner, Prokom-widget "
+        "og web_fetch-reserveløsningen) — de har ingenting å sammenligne.",
+    )
+    sist_uttrekk_json: Optional[str] = Field(
+        default=None,
+        description="JSON-liste med arrangementene fra siste AI-tolkning av kilden, uten "
+        "periodebegrensning (se harvest.standard_instruks). Gjenbrukes så lenge "
+        "sist_sidetekst_hash stemmer. Periodefiltreringen skjer i kode ved hver kjøring, så et "
+        "lagret uttrekk er like gyldig senere som da det ble laget.",
+    )
     opprettet_at: datetime = Field(default_factory=datetime.utcnow)
 
     @property

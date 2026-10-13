@@ -198,7 +198,7 @@ def _kjor_automatisk_innhosting() -> None:
     with Session(engine) as session:
         innstilling = _hent_innstilling(session)
         forste_dag, siste_dag = beregn_periode(antall_dager=innstilling.antall_dager)
-        _utfor_innhosting(session, standard_instruks(forste_dag, siste_dag))
+        _utfor_innhosting(session, standard_instruks())
 
 
 @app.post("/innstillinger")
@@ -1017,7 +1017,7 @@ def _innhosting_kontekst(
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "antall_dager": innstilling.antall_dager,
-        "standard_instruks_verdi": standard_instruks(forste_dag, siste_dag),
+        "standard_instruks_verdi": standard_instruks(),
         "feilmelding": feilmelding,
         "rolle": rolle,
         "auto_innhosting_aktiv": innstilling.auto_innhosting_aktiv,
@@ -1055,6 +1055,18 @@ def _filtrer_til_periode(arrangementer: list[dict], forste_dag: date, siste_dag:
     ville gjort — resten forblir bevart i den lagrede ManuellKilde-en for en senere kjøring."""
     fra, til = forste_dag.isoformat(), siste_dag.isoformat()
     return [a for a in arrangementer if fra <= str(a.get("dato") or "") <= til]
+
+
+def _uttrekk_for_kilde(kilde: Kilde) -> list[dict] | None:
+    """Leser det lagrede uttrekket for en URL-kilde. None hvis kilden aldri har blitt tolket,
+    eller hvis den lagrede JSON-en er ødelagt — begge deler betyr at den må tolkes på nytt."""
+    if not kilde.sist_uttrekk_json:
+        return None
+    try:
+        data = json.loads(kilde.sist_uttrekk_json)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, list) else None
 
 
 def _uttrekk_for_manuell_kilde(mk: ManuellKilde) -> list[dict] | None:
@@ -1199,13 +1211,17 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
     if aktive_kilder:
         with ThreadPoolExecutor(max_workers=min(MAKS_SAMTIDIGE_KILDER, len(aktive_kilder))) as executor:
             fremtid_til_kilde = {
-                executor.submit(hent_fra_kilde, kilde.url, forste_dag, siste_dag, instruks): kilde
+                executor.submit(
+                    hent_fra_kilde, kilde.url, forste_dag, siste_dag, instruks,
+                    kilde.sist_sidetekst_hash, _uttrekk_for_kilde(kilde),
+                ): kilde
                 for kilde in aktive_kilder
             }
             for fremtid in as_completed(fremtid_til_kilde):
                 kilde = fremtid_til_kilde[fremtid]
+                ny_hash = None
                 try:
-                    rå, foreslatt_url = fremtid.result()
+                    rå, foreslatt_url, ny_hash = fremtid.result()
                     henting_ok = True
                 except Exception as e:
                     rå, foreslatt_url = [], None
@@ -1221,9 +1237,13 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                 # feile med en forvirrende "session is in 'prepared' state"-feil som egentlig
                 # skyldes denne ene kilden.
                 try:
+                    # Uttrekket er periodefritt (se harvest.standard_instruks), så perioden
+                    # filtreres her — på samme måte som for manuelle kilder. Det som faller
+                    # utenfor vinduet nå, blir liggende i det lagrede uttrekket og kommer med
+                    # av seg selv når vinduet senere dekker datoen.
                     antall = sum(
                         1
-                        for a in rå
+                        for a in _filtrer_til_periode(rå, forste_dag, siste_dag)
                         if _lagre_arrangement(
                             session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
                             berorte_grupper, ikke_duplikat_par,
@@ -1232,6 +1252,12 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
                     kilde.automatisk_prioritet = float(antall)
                     if foreslatt_url:
                         kilde.url = foreslatt_url
+                    # Lagre uttrekket sammen med sjekksummen av sideteksten det ble laget fra,
+                    # slik at neste kjøring kan gjenbruke det hvis siden er uendret. ny_hash er
+                    # None for kilder som ikke går den veien — da er det ingenting å lagre.
+                    if ny_hash:
+                        kilde.sist_sidetekst_hash = ny_hash
+                        kilde.sist_uttrekk_json = json.dumps(rå, ensure_ascii=False)
                     if henting_ok:
                         kilde.antall_vellykkede_hentinger += 1
                     else:

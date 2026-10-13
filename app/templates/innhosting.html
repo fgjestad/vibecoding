@@ -141,6 +141,14 @@
           style="width: 100%; font-family: monospace; font-size: 0.85rem; margin-top: 0.3rem;"
         >{{ standard_instruks_verdi }}</textarea>
       </label>
+      <p class="meta" style="margin: 0.4rem 0 0;">
+        Instruksen styrer <em>hva</em> som regnes som et relevant arrangement — ikke hvilken
+        periode. Alle kilder tolkes uten datobegrensning, og perioden
+        ({{ forste_dag }} – {{ siste_dag }}) filtreres i etterkant ut fra antall dager valgt
+        under Innstillinger. Det gjør at arrangementer lenger fram i tid ikke går tapt, men
+        dukker opp av seg selv når perioden når dem — og at en kilde som er uendret siden sist
+        kan gjenbrukes uten å tolkes med AI på nytt.
+      </p>
       <button type="submit" class="primær" id="kjor-knapp" style="margin-top: 0.75rem;">
         Kjør innhøsting
       </button>

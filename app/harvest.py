@@ -524,7 +524,7 @@ def diagnostiser_kirkenines_kalender(forste_dag: date, siste_dag: date) -> tuple
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], direkte_feil or "Ukjent feil."
 
-    instruks = standard_instruks(forste_dag, siste_dag)
+    instruks = standard_instruks()
     arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(KIRKENINES_KALENDER_URL, instruks)
     if arrangementer:
         return arrangementer, ""
@@ -1105,47 +1105,22 @@ def _er_ordrett(utdrag: str, kildetekst: str) -> bool:
     return _normaliser_for_sammenligning(utdrag) in _normaliser_for_sammenligning(kildetekst)
 
 
-def standard_instruks(forste_dag: date, siste_dag: date) -> str:
-    """Standard-instruksen som sendes til Claude for å hente ut arrangementer.
+def standard_instruks() -> str:
+    """Instruksen som sendes til Claude for å hente ut arrangementer.
 
-    Vises redigerbar i UI (jobb 2) slik at brukeren kan finpusse den før en kjøring.
+    UTEN periodebegrensning, med vilje: alle kilder skal identifisere ALLE arrangementer de
+    omtaler, uansett dato. Datofiltreringen mot gjeldende innhøstingsperiode gjøres i etterkant
+    i kode (main._filtrer_til_periode). Det gir to ting:
+
+    - Et arrangement som i dag ligger utenfor datovinduet går ikke tapt, men fanges opp
+      automatisk når vinduet senere dekker datoen.
+    - Uttrekket blir uavhengig av perioden, og kan dermed lagres og gjenbrukes så lenge kilden
+      er uendret, i stedet for å måtte tolkes på nytt ved hver kjøring. Perioden glir én dag
+      per døgn, så et periodebundet uttrekk ville aldri kunne gjenbrukes.
+
+    Vises redigerbar i UI (jobb 2) slik at brukeren kan finpusse den før en kjøring — derfor
+    skal den heller ikke inneholde periodedatoer, som brukeren ville måtte vedlikeholde manuelt.
     """
-    return f"""Dagens dato er {date.today().isoformat()}. Perioden vi er interessert i: \
-{forste_dag.isoformat()} til {siste_dag.isoformat()} (begge datoer inkludert).
-
-Hvis en dato i kilden ikke oppgir årstall eksplisitt (f.eks. bare "21. august" uten år), anta \
-det årstallet som gir en dato i eller nær perioden over — ALDRI et årstall som ville plassert \
-arrangementet i fortiden (før dagens dato), med mindre kilden eksplisitt oppgir et slikt \
-årstall selv. Vær spesielt obs på at bilder/PDF-er av annonser/plakater ofte gjenbruker en \
-gammel mal med feil/utdatert årstall trykt på seg (f.eks. i en logo eller footer) — stol IKKE \
-blindt på et slikt trykt årstall hvis det ikke stemmer med dagens dato og perioden over.
-
-For hvert arrangement i denne perioden, hent ut:
-- "tittel": kort tittel på arrangementet
-- "dato": dato i format YYYY-MM-DD
-- "klokkeslett": klokkeslett hvis oppgitt (f.eks. "18:00"), ellers null
-- "sted": stedsnavn/adresse, så spesifikt som mulig
-- "arrangor": arrangør/avsender hvis oppgitt, ellers null
-- "original_tekst": teksten som beskriver arrangementet, KOPIERT ORDRETT fra kilden (ikke \
-omskrevet, ikke forkortet, ikke oppsummert — den skal være identisk med teksten slik den står \
-på kilden, tegn for tegn)
-- "geografisk_relevans": "bekreftet" hvis stedet tydelig er i {STED_BESKRIVELSE}, \
-"sannsynlig" hvis uklart men trolig lokalt, "usikker" hvis reelt i tvil
-
-Ikke ta med arrangementer som tydelig skjer utenfor Nes kommune, eller utenfor perioden over.
-
-Svar til slutt KUN med et gyldig JSON-array, ingen tekst før eller etter. Hvis du ikke finner \
-noen relevante arrangementer, svar med et tomt array: []"""
-
-
-def instruks_for_manuell_kilde() -> str:
-    """Som standard_instruks, men UTEN periodebegrensning — brukes for de vedvarende manuelle
-    kildene (skjermdump/PDF/limt inn tekst, se modellen ManuellKilde). Disse skal identifisere
-    ALLE arrangementer i dokumentet uansett dato, ikke bare de som tilfeldigvis er innenfor et
-    gjeldende datovindu — datofiltrering mot perioden gjøres i etterkant i kode (se
-    main._filtrer_til_periode), slik at et arrangement som først lå utenfor vinduet fanges opp
-    automatisk når vinduet senere dekker datoen dets, i stedet for å gå tapt for godt. Brukes
-    også til å beregne kildens utløpsdato (seneste arrangement-dato funnet)."""
     return f"""Dagens dato er {date.today().isoformat()}.
 
 Hvis en dato i kilden ikke oppgir årstall eksplisitt (f.eks. bare "21. august" uten år), anta \
@@ -1167,12 +1142,21 @@ på kilden, tegn for tegn)
 - "geografisk_relevans": "bekreftet" hvis stedet tydelig er i {STED_BESKRIVELSE}, \
 "sannsynlig" hvis uklart men trolig lokalt, "usikker" hvis reelt i tvil
 
+Merk at én omtale kan inneholde FLERE arrangementer — f.eks. en møteserie som lister opp en \
+rekke datoer. Da skal hver dato bli sitt eget arrangement.
+
 Ikke ta med arrangementer som tydelig skjer utenfor Nes kommune. IKKE begrens til noen bestemt \
-tidsperiode — ta med alle arrangementer som er omtalt i dokumentet, uansett hvor langt fram \
-eller tilbake i tid de er.
+tidsperiode — ta med alle arrangementer som er omtalt, uansett hvor langt fram i tid de er.
 
 Svar til slutt KUN med et gyldig JSON-array, ingen tekst før eller etter. Hvis du ikke finner \
 noen relevante arrangementer, svar med et tomt array: []"""
+
+
+def instruks_for_manuell_kilde() -> str:
+    """Instruksen for de vedvarende manuelle kildene (skjermdump/PDF/limt inn tekst, se
+    modellen ManuellKilde). Identisk med standard_instruks — begge er periodefrie av samme
+    grunn — og beholdt som eget navn fordi kallstedene leser tydeligere slik."""
+    return standard_instruks()
 
 
 def _hent_fra_kilde_via_sidetekst(
@@ -1210,8 +1194,18 @@ def hent_fra_kilde(
     forste_dag: date,
     siste_dag: date,
     instruks: str | None = None,
-) -> tuple[list[dict], str | None]:
-    """Henter arrangementer fra én kilde-URL. Returnerer (arrangementer, foreslått_url).
+    tidligere_hash: str | None = None,
+    tidligere_uttrekk: list[dict] | None = None,
+) -> tuple[list[dict], str | None, str | None]:
+    """Henter arrangementer fra én kilde-URL.
+
+    Returnerer (arrangementer, foreslått_url, sidetekst_hash).
+
+    sidetekst_hash er en sjekksum av sideteksten som ble tolket, eller None når kilden ikke
+    gikk den veien (dedikert integrasjon, Prokom-widget eller web_fetch-reserveløsningen).
+    Kalleren lagrer hash-en sammen med uttrekket og sender begge inn igjen neste gang som
+    tidligere_hash/tidligere_uttrekk; er siden da uendret, gjenbrukes uttrekket uten et eneste
+    AI-kall. Er hash-en None, finnes det ingenting å gjenbruke.
 
     foreslått_url er en mer presis URL for kilden (f.eks. etter omdirigering, eller
     foreslått av Claude) hvis vi fant en, ellers None — brukes til å oppdatere kildelisten
@@ -1231,20 +1225,20 @@ def hent_fra_kilde(
     til False.
     """
     if _er_visitgreateroslo_kilde(kilde_url):
-        return _hent_fra_visitgreateroslo(kilde_url, forste_dag, siste_dag), None
+        return _hent_fra_visitgreateroslo(kilde_url, forste_dag, siste_dag), None, None
 
     if (urlparse(kilde_url).hostname or "").lower() == (urlparse(NES_KOMMUNE_KALENDER_URL).hostname or "").lower():
         # Nes kommunes aktivitetskalender har sluttet å bruke den gamle Prokom-widgeten
         # (se diagnostiser_nes_kalender), så den generiske widget-deteksjonen lenger ned
         # finner den ikke lenger — ruter derfor direkte til den kjente fungerende API-veien.
         arrangementer, _diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
-        return arrangementer, None
+        return arrangementer, None, None
 
     if (urlparse(kilde_url).hostname or "").lower() == (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower():
         # Kirken i Nes' kalenderside har ingen gjenkjennbar widget/API — kalenderdataene ligger
         # ferdig rendret i en <script>-tag på siden (se diagnostiser_kirkenines_kalender).
         arrangementer, _diagnose = diagnostiser_kirkenines_kalender(forste_dag, siste_dag)
-        return arrangementer, None
+        return arrangementer, None, None
 
     if (
         urlparse(kilde_url).hostname or ""
@@ -1253,19 +1247,19 @@ def hent_fra_kilde(
         # injiserer innholdet med JavaScript ved kjøretid — dataene hentes derfor i stedet
         # direkte fra kirkens to offentlige Google-kalender-feeder, se
         # _hent_fra_betelkirken_kalender.
-        return _hent_fra_betelkirken_kalender(forste_dag, siste_dag), None
+        return _hent_fra_betelkirken_kalender(forste_dag, siste_dag), None, None
 
     rå_resultat = _hent_side_raw(kilde_url)
     if rå_resultat:
         widget = _finn_prokom_widget(rå_resultat[0])
         if widget:
             api_url_mal, kalender_sti = widget
-            return _hent_fra_prokom_kalender(kilde_url, api_url_mal, kalender_sti, forste_dag, siste_dag), None
+            return _hent_fra_prokom_kalender(kilde_url, api_url_mal, kalender_sti, forste_dag, siste_dag), None, None
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return [], None
+        return [], None, None
 
-    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
+    instruks = instruks if instruks is not None else standard_instruks()
 
     resultat = None
     if rå_resultat:
@@ -1279,18 +1273,31 @@ def hent_fra_kilde(
             resultat = (sidetekst, rå_resultat[1])
     if resultat:
         sidetekst, endelig_url = resultat
+        ny_hash = hashlib.sha256(sidetekst.encode("utf-8")).hexdigest()
+        foreslatt_url = None
+        if endelig_url and endelig_url != kilde_url and _samme_domene(endelig_url, kilde_url):
+            foreslatt_url = endelig_url
+
+        # Siden er uendret siden forrige kjøring — gjenbruk det lagrede uttrekket i stedet for
+        # å betale for å tolke nøyaktig samme tekst på nytt. Dette er den klart største
+        # kostnadsposten i appen: sideteksten er input-tokens, og input utgjør ~87 % av
+        # regningen. Uttrekket er periodefritt (se standard_instruks), så det er like gyldig
+        # nå som da det ble laget — perioden filtreres i kode uansett.
+        if tidligere_hash and tidligere_uttrekk is not None and ny_hash == tidligere_hash:
+            return list(tidligere_uttrekk), foreslatt_url, ny_hash
+
         arrangementer = _hent_fra_kilde_via_sidetekst(kilde_url, sidetekst, instruks)
         if arrangementer is not None:
             for a in arrangementer:
                 a["kilde_type"] = "fast_kalender"
                 a["kilde_url"] = kilde_url
                 a["tekst_bekreftet"] = _er_ordrett(a.get("original_tekst", ""), sidetekst)
-            foreslatt_url = None
-            if endelig_url and endelig_url != kilde_url and _samme_domene(endelig_url, kilde_url):
-                foreslatt_url = endelig_url
-            return arrangementer, foreslatt_url
+            return arrangementer, foreslatt_url, ny_hash
 
-    return _hent_fra_kilde_via_web_fetch(kilde_url, instruks)
+    # Reserveløsningen har ingen sidetekst å lage sjekksum av, så den kan ikke gjenbrukes og
+    # koster fullt hver gang. Det er grunnen til at helsesjekk_kilde merker slike kilder "DYR".
+    arrangementer, foreslatt_url = _hent_fra_kilde_via_web_fetch(kilde_url, instruks)
+    return arrangementer, foreslatt_url, None
 
 
 def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[dict], str]:
@@ -1323,7 +1330,7 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], direkte_feil or "Ukjent feil."
 
-    instruks = standard_instruks(forste_dag, siste_dag)
+    instruks = standard_instruks()
     arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(
         NES_KOMMUNE_KALENDER_URL, instruks
     )
@@ -1615,7 +1622,7 @@ def hent_fra_bilde(
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], ""
 
-    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
+    instruks = instruks if instruks is not None else standard_instruks()
     client = Anthropic()
     b64 = base64.standard_b64encode(data).decode("utf-8")
     prompt = f"""Dette er en skjermdump av et innlegg eller en side med én eller flere \
@@ -1685,7 +1692,7 @@ def hent_fra_pdf(
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], ""
 
-    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
+    instruks = instruks if instruks is not None else standard_instruks()
     client = Anthropic()
     felles = """Merk at én annonse kan inneholde FLERE arrangementer — f.eks. en møteserie som \
 lister opp en rekke datoer. Da skal hver dato bli sitt eget arrangement."""
@@ -1753,7 +1760,7 @@ def hent_fra_tekst(
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return [], ""
 
-    instruks = instruks if instruks is not None else standard_instruks(forste_dag, siste_dag)
+    instruks = instruks if instruks is not None else standard_instruks()
     client = Anthropic()
     prompt = f"""Dette er tekst limt inn av brukeren (f.eks. kopiert fra et innlegg om ett \
 eller flere arrangementer, som Facebook). Les gjennom og hent ut arrangementene som er omtalt.
