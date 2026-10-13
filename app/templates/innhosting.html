@@ -26,11 +26,20 @@
       under (ingenting du allerede har i lista forsvinner).
     </p>
 
-    <form method="post" action="/innstillinger" style="margin-bottom: 1.5rem; display: flex; align-items: flex-end; gap: 0.75rem;">
+    <form method="post" action="/innstillinger" style="margin-bottom: 1.5rem; display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap;">
       <label style="margin: 0;">Antall dager fram i tid (fra i morgen)
         <input type="number" name="antall_dager" value="{{ antall_dager }}" min="1" max="90" style="width: 6rem;" />
       </label>
+      <label style="margin: 0; display: flex; align-items: center; gap: 0.4rem; font-weight: normal;">
+        <input type="checkbox" name="hent_fotball" value="1" {% if hent_fotball_i_innhosting %}checked{% endif %} />
+        Hent seniorkamper ved innhøsting
+      </label>
       <button type="submit">Lagre periode</button>
+      <p class="meta" style="flex-basis: 100%; margin: 0;">
+        Fotballkampene koster ingenting i tokens, men gjør hver innhøsting tregere — ett oppslag
+        per klubb per dag i perioden. Slår du det av, kan kampene fortsatt hentes når som helst
+        med knappene lenger ned.
+      </p>
     </form>
 
     {% if rolle == 'admin' %}

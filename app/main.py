@@ -210,11 +210,14 @@ def _kjor_automatisk_innhosting() -> None:
 @app.post("/innstillinger")
 def oppdater_innstillinger(
     antall_dager: int = Form(...),
+    hent_fotball: str = Form(default=""),
     session: Session = Depends(get_session),
     _: str = Depends(sjekk_passord),
 ):
     innstilling = _hent_innstilling(session)
     innstilling.antall_dager = max(1, min(antall_dager, 90))
+    # En avhuket avkrysningsboks sendes ikke med i skjemaet i det hele tatt, så fravær betyr av.
+    innstilling.hent_fotball_i_innhosting = bool(hent_fotball)
     session.add(innstilling)
     session.commit()
     return RedirectResponse(url="/innhosting", status_code=303)
@@ -1058,6 +1061,7 @@ def _innhosting_kontekst(
         "forste_dag": forste_dag,
         "siste_dag": siste_dag,
         "antall_dager": innstilling.antall_dager,
+        "hent_fotball_i_innhosting": innstilling.hent_fotball_i_innhosting,
         "standard_instruks_verdi": standard_instruks(),
         "feilmelding": feilmelding,
         "rolle": rolle,
@@ -1336,19 +1340,20 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
     # Ungdoms- og barnekamper utelates; de kan fortsatt hentes med "Alle fotballkamper"-
     # knappen ved behov. sjekk_duplikater=False fordi kampene er strukturerte og entydige,
     # likt som i knappene (se _hent_fotballkamper_til_utkast).
-    try:
-        fotballkamper, fotball_feilet = hent_fotballkamper(forste_dag, siste_dag, kun_senior=True)
-        for a in fotballkamper:
-            _lagre_arrangement(
-                session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
-                berorte_grupper, ikke_duplikat_par, sjekk_duplikater=False,
-            )
-        session.commit()
-        if fotball_feilet:
-            feil_kilder.append(f"fotball.no ({fotball_feilet} oppslag feilet og ble hoppet over)")
-    except Exception as e:
-        session.rollback()
-        feil_kilder.append(f"fotball.no ({e})")
+    if innstilling.hent_fotball_i_innhosting:
+        try:
+            fotballkamper, fotball_feilet = hent_fotballkamper(forste_dag, siste_dag, kun_senior=True)
+            for a in fotballkamper:
+                _lagre_arrangement(
+                    session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
+                    berorte_grupper, ikke_duplikat_par, sjekk_duplikater=False,
+                )
+            session.commit()
+            if fotball_feilet:
+                feil_kilder.append(f"fotball.no ({fotball_feilet} oppslag feilet og ble hoppet over)")
+        except Exception as e:
+            session.rollback()
+            feil_kilder.append(f"fotball.no ({e})")
 
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return feil_kilder

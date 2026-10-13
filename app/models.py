@@ -226,6 +226,13 @@ class Innstilling(SQLModel, table=True):
     antall_dager: int = Field(
         default=14, description="Hvor mange dager fram i tid (fra i morgen) perioden dekker"
     )
+    hent_fotball_i_innhosting: bool = Field(
+        default=True,
+        description="True hvis seniorkamper fra fotball.no skal hentes som del av hver "
+        "innhøsting. Koster ingenting i tokens (fotball.no parses i kode, uten AI), men gjør "
+        "kjøringen tregere: ett HTTP-oppslag per klubb per dag i perioden. Slås den av, kan "
+        "kampene fortsatt hentes når som helst med knappene på Innhøsting-siden.",
+    )
     auto_innhosting_aktiv: bool = Field(
         default=False, description="True hvis 'Kjør innhøsting' skal kjøres automatisk på et fast tidsskjema"
     )

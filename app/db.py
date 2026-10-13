@@ -111,6 +111,10 @@ def _migrer_innstilling_tabell() -> None:
             )
         if "artikkel_instruks" not in kolonner:
             conn.execute(text("ALTER TABLE innstilling ADD COLUMN artikkel_instruks TEXT"))
+        if "hent_fotball_i_innhosting" not in kolonner:
+            conn.execute(
+                text("ALTER TABLE innstilling ADD COLUMN hent_fotball_i_innhosting BOOLEAN NOT NULL DEFAULT 1")
+            )
         if "auto_innhosting_ukedag_2" not in kolonner:
             conn.execute(text("ALTER TABLE innstilling ADD COLUMN auto_innhosting_ukedag_2 INTEGER NOT NULL DEFAULT 3"))
         if "auto_innhosting_klokkeslett_2" not in kolonner:
