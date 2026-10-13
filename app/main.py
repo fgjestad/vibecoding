@@ -1329,6 +1329,27 @@ def _utfor_innhosting(session: Session, instruks: str) -> list[str]:
             flerdags_kandidater, berorte_grupper, ikke_duplikat_par,
         )
     )
+
+    # Seniorkamper tas med i hver innhøsting. Fotball.no hentes direkte i kode uten AI, så
+    # dette koster ingenting i tokens — men det er mange HTTP-oppslag (én per klubb per dag),
+    # så enkeltoppslag som feiler hoppes over i stedet for å stoppe hele innhøstingen.
+    # Ungdoms- og barnekamper utelates; de kan fortsatt hentes med "Alle fotballkamper"-
+    # knappen ved behov. sjekk_duplikater=False fordi kampene er strukturerte og entydige,
+    # likt som i knappene (se _hent_fotballkamper_til_utkast).
+    try:
+        fotballkamper, fotball_feilet = hent_fotballkamper(forste_dag, siste_dag, kun_senior=True)
+        for a in fotballkamper:
+            _lagre_arrangement(
+                session, a, sett_ider, ekskluderte, hittil_pr_dato, flerdags_kandidater,
+                berorte_grupper, ikke_duplikat_par, sjekk_duplikater=False,
+            )
+        session.commit()
+        if fotball_feilet:
+            feil_kilder.append(f"fotball.no ({fotball_feilet} oppslag feilet og ble hoppet over)")
+    except Exception as e:
+        session.rollback()
+        feil_kilder.append(f"fotball.no ({e})")
+
     _oppdater_sammenslatte_grupper(session, berorte_grupper, ekskluderte)
     return feil_kilder
 
