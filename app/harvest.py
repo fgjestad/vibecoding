@@ -58,6 +58,19 @@ NES_KOMMUNE_KALENDER_STI = "/aktivitetskalender/"
 
 MINSTE_SIDETEKST_LENGDE = 500
 
+# Øvre grense for hvor langt SVARET fra Claude kan bli når arrangementer hentes ut. Dette er
+# ikke en grense på hvor mye tekst vi sender inn, men på hvor mange arrangementer modellen
+# rekker å liste opp før den blir stoppet — og et avkuttet svar betyr at arrangementer etter
+# kuttet forsvinner stille.
+#
+# Satt høyt fordi uttrekket er periodefritt: kildene bes om å liste ALLE arrangementer de
+# omtaler, ikke bare de i gjeldende vindu, og en årskalender kan inneholde svært mange. Et
+# arrangement koster omtrent 100-150 tokens å beskrive, så dette rommer rundt 120 av dem.
+# Taket nås normalt ikke, og koster derfor ingenting i praksis — det er en sikkerhetsmargin,
+# ikke et budsjett. Holdes likevel under det nivået der ikke-strømmende kall begynner å
+# risikere tidsavbrudd.
+MAKS_TOKENS_UTTREKK = 16384
+
 # Flere kommuner på Øvre Romerike (Nes, Gjerdrum, Nannestad, Hurdal, Eidsvoll m.fl.) bruker
 # samme "Prokom/ØRU"-kalenderwidget ("startCalendar({...})"), som er JavaScript-drevet: selve
 # siden inneholder ingen arrangementer i den rå HTML-en — de hentes separat fra et eget API
@@ -1226,7 +1239,7 @@ denne teksten som kilde — ikke gjett eller fyll inn informasjon som ikke står
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=MAKS_TOKENS_UTTREKK,
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
         )
@@ -1401,7 +1414,7 @@ def _hent_fra_kilde_via_web_fetch_med_diagnose(kilde_url: str, instruks: str) ->
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=MAKS_TOKENS_UTTREKK,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
@@ -1443,7 +1456,7 @@ linjen helt.
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=MAKS_TOKENS_UTTREKK,
             tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
             output_config={"effort": "medium"},
             messages=[{"role": "user", "content": prompt}],
@@ -1685,7 +1698,7 @@ rekke datoer. Da skal hver dato bli sitt eget arrangement.
 """
     response = client.messages.create(
         model=MODEL,
-        max_tokens=8192,
+        max_tokens=MAKS_TOKENS_UTTREKK,
         output_config={"effort": "medium"},
         messages=[
             {
@@ -1780,7 +1793,7 @@ HELE dokumentet og hent ut alle arrangementene du finner, også de i de minste a
 
     response = client.messages.create(
         model=MODEL,
-        max_tokens=8192,
+        max_tokens=MAKS_TOKENS_UTTREKK,
         output_config={"effort": "medium"},
         messages=[{"role": "user", "content": innhold}],
     )
@@ -1824,7 +1837,7 @@ rekke datoer. Da skal hver dato bli sitt eget arrangement.
 """
     response = client.messages.create(
         model=MODEL,
-        max_tokens=8192,
+        max_tokens=MAKS_TOKENS_UTTREKK,
         output_config={"effort": "medium"},
         messages=[{"role": "user", "content": prompt}],
     )
