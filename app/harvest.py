@@ -521,8 +521,9 @@ def _hent_fra_kirkenines_kalender(forste_dag: date, siste_dag: date) -> list[dic
 
 
 def diagnostiser_kirkenines_kalender(forste_dag: date, siste_dag: date) -> tuple[list[dict], str]:
-    """Som diagnostiser_nes_kalender, men for Kirken i Nes sin kalenderside. Returnerer
-    (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
+    """Som diagnostiser_nes_kalender, men for Kirken i Nes sin kalenderside. Feiler den direkte
+    veien, er det slutt — ingen AI-reserveløsning, se diagnostiser_nes_kalender for hvorfor.
+    Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
     direkte_feil = None
     try:
         arrangementer = _hent_fra_kirkenines_kalender(forste_dag, siste_dag)
@@ -534,14 +535,7 @@ def diagnostiser_kirkenines_kalender(forste_dag: date, siste_dag: date) -> tuple
     except (json.JSONDecodeError, KeyError, ValueError) as e:
         direkte_feil = f"Klarte å hente siden, men ikke tolke kalenderdataene i den: {type(e).__name__}: {e}"
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return [], direkte_feil or "Ukjent feil."
-
-    instruks = standard_instruks()
-    arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(KIRKENINES_KALENDER_URL, instruks)
-    if arrangementer:
-        return arrangementer, ""
-    return [], f"{direkte_feil} Reserveløsning: {fallback_diagnose}"
+    return [], direkte_feil or "Ukjent feil."
 
 
 # Betelkirken (Årnes og Auli) publiserer arrangementene sine i egne Google-kalendere, embedet
@@ -1292,13 +1286,17 @@ def hent_fra_kilde(
         # Nes kommunes aktivitetskalender har sluttet å bruke den gamle Prokom-widgeten
         # (se diagnostiser_nes_kalender), så den generiske widget-deteksjonen lenger ned
         # finner den ikke lenger — ruter derfor direkte til den kjente fungerende API-veien.
-        arrangementer, _diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
+        arrangementer, diagnose = diagnostiser_nes_kalender(forste_dag, siste_dag)
+        if diagnose:
+            raise RuntimeError(diagnose)
         return arrangementer, None, None
 
     if (urlparse(kilde_url).hostname or "").lower() == (urlparse(KIRKENINES_KALENDER_URL).hostname or "").lower():
         # Kirken i Nes' kalenderside har ingen gjenkjennbar widget/API — kalenderdataene ligger
         # ferdig rendret i en <script>-tag på siden (se diagnostiser_kirkenines_kalender).
-        arrangementer, _diagnose = diagnostiser_kirkenines_kalender(forste_dag, siste_dag)
+        arrangementer, diagnose = diagnostiser_kirkenines_kalender(forste_dag, siste_dag)
+        if diagnose:
+            raise RuntimeError(diagnose)
         return arrangementer, None, None
 
     if (
@@ -1369,10 +1367,14 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
     Kaller NES_KOMMUNE_KALENDER_API (sspkalender.prokom.no) direkte — en delt tredjeparts-
     tjeneste, IKKE kommunens egen nettside — så vi slipper å besøke nes.kommune.no i det
     hele tatt for selve datahentingen (kommunens egen brannmur har vist seg å blokkere
-    serverens forespørsler dit). Hvis DEN direkte API-veien likevel feiler, faller vi
-    tilbake til samme reserveløsning som den vanlige innhøstingen bruker: Claude henter
-    siden selv med web_fetch-verktøyet, fra en helt annen nettverksrute. Da kan ikke
-    original_tekst kode-verifiseres (tekst_bekreftet=False), men det er bedre enn ingenting.
+    serverens forespørsler dit).
+
+    Feiler den direkte veien, er det SLUTT — ingen AI-reserveløsning. Tidligere falt vi
+    tilbake til at Claude hentet siden selv med web_fetch, og det var en dyr feil på to måter:
+    rå HTML havnet i konteksten ved hver eneste innhøsting, og dedikerte kilder gjenbrukes
+    aldri, så kostnaden påløp i sin helhet hver gang. Verre var at det skjedde stille: en
+    ødelagt integrasjon kunne koste penger i ukevis mens den så ut til å fungere. En dedikert
+    integrasjon skal enten virke eller si fra, slik at den blir reparert.
 
     Returnerer (arrangementer, diagnose) — diagnose er tom streng ved suksess."""
     direkte_feil = None
@@ -1388,53 +1390,7 @@ def diagnostiser_nes_kalender(forste_dag: date, siste_dag: date) -> tuple[list[d
             f"Klarte ikke å koble til sspkalender.prokom.no direkte: {type(e).__name__}: {e}"
         )
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return [], direkte_feil or "Ukjent feil."
-
-    instruks = standard_instruks()
-    arrangementer, fallback_diagnose = _hent_fra_kilde_via_web_fetch_med_diagnose(
-        NES_KOMMUNE_KALENDER_URL, instruks
-    )
-    if arrangementer:
-        return arrangementer, ""
-    return [], f"{direkte_feil} Reserveløsning: {fallback_diagnose}"
-
-
-def _hent_fra_kilde_via_web_fetch_med_diagnose(kilde_url: str, instruks: str) -> tuple[list[dict], str]:
-    """Som _hent_fra_kilde_via_web_fetch, men svelger ikke feil stille — returnerer i stedet
-    en diagnosemelding som forklarer hva som gikk galt (selve Claude-kallet feilet, eller
-    svaret inneholdt ingen gjenkjennbare arrangementer). Brukt av diagnostiser_nes_kalender,
-    der et stille nulltreff er vanskelig å feilsøke for brukeren siden dette er den viktigste
-    enkeltkilden."""
-    client = Anthropic()
-    prompt = f"""Gå til denne nettsiden og finn lokale arrangementer: {kilde_url}
-
-{instruks}
-"""
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAKS_TOKENS_UTTREKK,
-            tools=[{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 3}],
-            output_config={"effort": "medium"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except Exception as e:
-        return [], f"Claude-kallet feilet: {type(e).__name__}: {e}"
-
-    tekst = "".join(b.text for b in response.content if b.type == "text")
-    arrangementer = _parse_json_liste(tekst)
-    for a in arrangementer:
-        a["kilde_type"] = "fast_kalender"
-        a["kilde_url"] = kilde_url
-        a["tekst_bekreftet"] = False
-
-    if not arrangementer:
-        utdrag = tekst.strip()[:300]
-        if utdrag:
-            return [], f"Claude fant ingen arrangementer på siden. Svar (utdrag): {utdrag!r}"
-        return [], "Claude ga et tomt svar (kan tyde på at web_fetch-verktøyet ikke fikk hentet siden)."
-    return arrangementer, ""
+    return [], direkte_feil or "Ukjent feil."
 
 
 def _hent_fra_kilde_via_web_fetch(kilde_url: str, instruks: str) -> tuple[list[dict], str | None]:
@@ -1494,7 +1450,10 @@ def helsesjekk_kilde(kilde_url: str) -> str:
     if er_dedikert_kilde(kilde_url):
         return (
             "Dedikert integrasjon. Denne kilden hentes direkte fra sitt eget API/datagrunnlag "
-            "uten AI-tolkning, og koster derfor ingenting i tokens. Ingen helsesjekk nødvendig."
+            "uten AI-tolkning, og koster derfor ingenting i tokens.\n"
+            "Den har ingen AI-reserveløsning: klarer den direkte veien ikke å hente dataene, "
+            "stopper det der og feilen vises i resultatet etter innhøstingen. Den kan altså "
+            "ikke koste penger i det stille."
         )
 
     try:
